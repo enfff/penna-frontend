@@ -218,12 +218,12 @@
         <attribute name="action">win.change-repo</attribute>
       </item>
       <item>
-        <attribute name="label" translatable="yes">_Quit</attribute>
-        <attribute name="action">app.quit</attribute>
-      </item>
-      <item>
         <attribute name="label" translatable="yes">_About Penna-frontend</attribute>
         <attribute name="action">app.about</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Quit</attribute>
+        <attribute name="action">app.quit</attribute>
       </item>
     </section>
   </menu>

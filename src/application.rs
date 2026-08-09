@@ -50,6 +50,17 @@ mod imp {
             obj.set_accels_for_action("app.quit", &["<control>q"]);
             obj.set_accels_for_action("win.back-to-grid", &["Escape"]);
             obj.set_accels_for_action("win.toggle-viewer-mode", &["<control>d"]);
+            obj.set_accels_for_action("win.wrap-bold", &["<control>b"]);
+            obj.set_accels_for_action("win.wrap-italic", &["<control>i"]);
+            obj.set_accels_for_action("win.wrap-link", &["<control>k"]);
+            obj.set_accels_for_action("win.wrap-code", &["<control>e"]);
+            obj.set_accels_for_action("win.wrap-strikethrough", &["<control><shift>x"]);
+            obj.set_accels_for_action("win.save", &["<control>s"]);
+            obj.set_accels_for_action("win.prefix-bullet-list", &["<control><shift>8"]);
+            obj.set_accels_for_action("win.prefix-numbered-list", &["<control><shift>7"]);
+            obj.set_accels_for_action("win.prefix-checklist", &["<control><shift>9"]);
+            obj.set_accels_for_action("win.prefix-blockquote", &["<control><shift>period"]);
+            obj.set_accels_for_action("win.wrap-code-block", &["<control><alt>e"]);
             obj.set_accels_for_action("win.zoom-in", &["<control>plus", "<control>equal", "<control>KP_Add"]);
             obj.set_accels_for_action("win.zoom-out", &["<control>minus", "<control>KP_Subtract"]);
         }

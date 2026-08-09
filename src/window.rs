@@ -44,7 +44,9 @@ const TAG_CODE: &str = "md-code";
 const TAG_CODE_BLOCK: &str = "md-code-block";
 const TAG_BOLD: &str = "md-bold";
 const TAG_ITALIC: &str = "md-italic";
+const TAG_STRIKETHROUGH: &str = "md-strikethrough";
 const TAG_SYNTAX: &str = "md-syntax";
+const TAG_LIST_MARKER: &str = "md-list-marker";
 const TAG_LIST_ITEM: &str = "md-list-item";
 const TAG_LINK: &str = "md-link";
 const TAG_CHECKED: &str = "md-checked";
@@ -244,6 +246,145 @@ impl PennaFrontendWindow {
         ));
         self.add_action(&toggle_viewer_mode);
 
+        let wrap_bold = gio::SimpleAction::new("wrap-bold", None);
+        wrap_bold.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.wrap_selection("**", "**");
+            }
+        ));
+        self.add_action(&wrap_bold);
+
+        let wrap_italic = gio::SimpleAction::new("wrap-italic", None);
+        wrap_italic.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.wrap_selection("*", "*");
+            }
+        ));
+        self.add_action(&wrap_italic);
+
+        let wrap_strikethrough = gio::SimpleAction::new("wrap-strikethrough", None);
+        wrap_strikethrough.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.wrap_selection("~~", "~~");
+            }
+        ));
+        self.add_action(&wrap_strikethrough);
+
+        let wrap_code = gio::SimpleAction::new("wrap-code", None);
+        wrap_code.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.wrap_selection("`", "`");
+            }
+        ));
+        self.add_action(&wrap_code);
+
+        let wrap_link = gio::SimpleAction::new("wrap-link", None);
+        wrap_link.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.wrap_link_selection();
+            }
+        ));
+        self.add_action(&wrap_link);
+
+        let prefix_bullet_list = gio::SimpleAction::new("prefix-bullet-list", None);
+        prefix_bullet_list.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.rewrite_selected_lines(|_, line| {
+                    if let Some(rest) = line
+                        .strip_prefix("• ")
+                        .or_else(|| line.strip_prefix("- "))
+                        .or_else(|| line.strip_prefix("* "))
+                        .or_else(|| line.strip_prefix("+ "))
+                    {
+                        rest.to_string()
+                    } else {
+                        format!("• {line}")
+                    }
+                });
+            }
+        ));
+        self.add_action(&prefix_bullet_list);
+
+        let prefix_numbered_list = gio::SimpleAction::new("prefix-numbered-list", None);
+        prefix_numbered_list.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.rewrite_selected_lines(|index, line| {
+                    if let Some(rest) = window.strip_ordered_list_prefix(line) {
+                        rest.to_string()
+                    } else {
+                        format!("{}. {line}", index + 1)
+                    }
+                });
+            }
+        ));
+        self.add_action(&prefix_numbered_list);
+
+        let prefix_checklist = gio::SimpleAction::new("prefix-checklist", None);
+        prefix_checklist.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.rewrite_selected_lines(|_, line| {
+                    if let Some(rest) = line
+                        .strip_prefix("- [ ] ")
+                        .or_else(|| line.strip_prefix("* [ ] "))
+                        .or_else(|| line.strip_prefix("+ [ ] "))
+                        .or_else(|| line.strip_prefix("- [x] "))
+                        .or_else(|| line.strip_prefix("* [x] "))
+                        .or_else(|| line.strip_prefix("+ [x] "))
+                        .or_else(|| line.strip_prefix("- [X] "))
+                        .or_else(|| line.strip_prefix("* [X] "))
+                        .or_else(|| line.strip_prefix("+ [X] "))
+                    {
+                        rest.to_string()
+                    } else {
+                        format!("- [ ] {line}")
+                    }
+                });
+            }
+        ));
+        self.add_action(&prefix_checklist);
+
+        let prefix_blockquote = gio::SimpleAction::new("prefix-blockquote", None);
+        prefix_blockquote.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.rewrite_selected_lines(|_, line| {
+                    if let Some(rest) = line.strip_prefix("> ") {
+                        rest.to_string()
+                    } else {
+                        format!("> {line}")
+                    }
+                });
+            }
+        ));
+        self.add_action(&prefix_blockquote);
+
+        let wrap_code_block = gio::SimpleAction::new("wrap-code-block", None);
+        wrap_code_block.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.insert_code_block_template();
+            }
+        ));
+        self.add_action(&wrap_code_block);
+
         let change_repo = gio::SimpleAction::new("change-repo", None);
         change_repo.connect_activate(glib::clone!(
             #[weak(rename_to = window)]
@@ -301,6 +442,25 @@ impl PennaFrontendWindow {
             }
         ));
 
+        imp.editor_view.buffer().connect_mark_set(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |buffer, iter, mark| {
+                let insert_mark = buffer.get_insert();
+                if mark != &insert_mark {
+                    return;
+                }
+
+                let imp = window.imp();
+                if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
+                    return;
+                }
+
+                let mut iter = *iter;
+                imp.editor_view.scroll_to_iter(&mut iter, 0.2, false, 0.0, 0.9);
+            }
+        ));
+
         imp.main_menu_button.connect_notify_local(
             Some("active"),
             glib::clone!(
@@ -354,7 +514,6 @@ impl PennaFrontendWindow {
                 if !state.contains(gdk::ModifierType::CONTROL_MASK) {
                     return glib::Propagation::Proceed;
                 }
-
                 if dy < 0.0 {
                     window.adjust_editor_zoom(1);
                 } else if dy > 0.0 {
@@ -365,6 +524,32 @@ impl PennaFrontendWindow {
             }
         ));
         imp.editor_page.add_controller(scroll);
+
+        let key_controller = gtk::EventControllerKey::new();
+        key_controller.connect_key_pressed(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, keyval, _, _| {
+                if matches!(keyval.to_unicode(), Some(' ')) && window.convert_leading_hyphen_to_bullet() {
+                    return glib::Propagation::Stop;
+                }
+
+                if matches!(keyval.to_unicode(), Some('`')) && window.expand_code_block_from_backticks() {
+                    return glib::Propagation::Stop;
+                }
+
+                if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter)
+                    && window.continue_list_on_enter()
+                {
+                    return glib::Propagation::Stop;
+                }
+
+                glib::Propagation::Proceed
+            }
+        ));
+        imp.editor_view.add_controller(key_controller);
 
         self.load_editor_preferences();
         self.show_grid_view();
@@ -412,6 +597,329 @@ impl PennaFrontendWindow {
         } else {
             "Turn on viewer mode"
         }));
+    }
+
+    fn wrap_selection(&self, prefix: &str, suffix: &str) {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        let Some((mut start, mut end)) = buffer.selection_bounds() else {
+            return;
+        };
+
+        if start.offset() > end.offset() {
+            std::mem::swap(&mut start, &mut end);
+        }
+
+        let start_offset = start.offset();
+        let selected_text = buffer.text(&start, &end, true).to_string();
+        let wrapped_text = format!("{prefix}{selected_text}{suffix}");
+        let selected_char_count = selected_text.chars().count() as i32;
+        let prefix_char_count = prefix.chars().count() as i32;
+        let suffix_char_count = suffix.chars().count() as i32;
+
+        buffer.delete(&mut start, &mut end);
+
+        let mut insert_iter = buffer.iter_at_offset(start_offset);
+        buffer.insert(&mut insert_iter, &wrapped_text);
+
+        let cursor_offset = start_offset + prefix_char_count + selected_char_count + suffix_char_count;
+        let cursor_iter = buffer.iter_at_offset(cursor_offset);
+        buffer.place_cursor(&cursor_iter);
+
+        let mut scroll_iter = cursor_iter.clone();
+        imp.editor_view.scroll_to_iter(&mut scroll_iter, 0.1, false, 0.0, 0.0);
+    }
+
+    fn wrap_link_selection(&self) {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        let Some((mut start, mut end)) = buffer.selection_bounds() else {
+            return;
+        };
+
+        if start.offset() > end.offset() {
+            std::mem::swap(&mut start, &mut end);
+        }
+
+        let start_offset = start.offset();
+        let selected_text = buffer.text(&start, &end, true).to_string();
+        let wrapped_text = format!("[{selected_text}](url)");
+        let selected_char_count = selected_text.chars().count() as i32;
+        let url_start = start_offset + selected_char_count + 3;
+        let url_end = url_start + 3;
+
+        buffer.delete(&mut start, &mut end);
+
+        let mut insert_iter = buffer.iter_at_offset(start_offset);
+        buffer.insert(&mut insert_iter, &wrapped_text);
+
+        let selection_start = buffer.iter_at_offset(url_start);
+        let selection_end = buffer.iter_at_offset(url_end);
+        buffer.select_range(&selection_start, &selection_end);
+        imp.editor_view.grab_focus();
+    }
+
+    fn rewrite_selected_lines<F>(&self, mut rewrite_line: F)
+    where
+        F: FnMut(usize, &str) -> String,
+    {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        let (start_offset, end_offset, has_selection) = if let Some((mut start, mut end)) = buffer.selection_bounds() {
+            if start.offset() > end.offset() {
+                std::mem::swap(&mut start, &mut end);
+            }
+            (start.offset(), end.offset(), true)
+        } else {
+            let insert = buffer.iter_at_mark(&buffer.get_insert());
+            let mut line_start = insert;
+            line_start.set_line_offset(0);
+            let mut line_end = line_start;
+            line_end.forward_to_line_end();
+            (line_start.offset(), line_end.offset(), false)
+        };
+
+        let mut start_iter = buffer.iter_at_offset(start_offset);
+        start_iter.set_line_offset(0);
+        let mut end_iter = buffer.iter_at_offset(end_offset);
+        if has_selection && end_iter.line_offset() != 0 {
+            end_iter.forward_to_line_end();
+        }
+
+        let replace_start = start_iter.offset();
+        let replace_end = end_iter.offset();
+        let selected_text = buffer.text(&start_iter, &end_iter, true).to_string();
+        let replaced_text = selected_text
+            .split('\n')
+            .enumerate()
+            .map(|(index, line)| rewrite_line(index, line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let replaced_char_count = replaced_text.chars().count() as i32;
+
+        let mut delete_start = buffer.iter_at_offset(replace_start);
+        let mut delete_end = buffer.iter_at_offset(replace_end);
+        buffer.delete(&mut delete_start, &mut delete_end);
+
+        let mut insert_iter = buffer.iter_at_offset(replace_start);
+        buffer.insert(&mut insert_iter, &replaced_text);
+
+        let selection_start = buffer.iter_at_offset(replace_start);
+        let selection_end = buffer.iter_at_offset(replace_start + replaced_char_count);
+        buffer.select_range(&selection_start, &selection_end);
+        imp.editor_view.grab_focus();
+    }
+
+    fn strip_ordered_list_prefix<'a>(&self, line: &'a str) -> Option<&'a str> {
+        let dot_index = line.find(". ")?;
+        let (number, rest) = line.split_at(dot_index);
+        if number.chars().all(|ch| ch.is_ascii_digit()) {
+            rest.strip_prefix(". ")
+        } else {
+            None
+        }
+    }
+
+    fn insert_code_block_template(&self) {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        let (start_offset, end_offset, selected_text) = if let Some((mut start, mut end)) = buffer.selection_bounds() {
+            if start.offset() > end.offset() {
+                std::mem::swap(&mut start, &mut end);
+            }
+            (start.offset(), end.offset(), buffer.text(&start, &end, true).to_string())
+        } else {
+            let insert = buffer.iter_at_mark(&buffer.get_insert());
+            let mut line_start = insert;
+            line_start.set_line_offset(0);
+            let mut line_end = line_start;
+            line_end.forward_to_line_end();
+            (line_start.offset(), line_end.offset(), buffer.text(&line_start, &line_end, true).to_string())
+        };
+
+        let wrapped_text = if selected_text.is_empty() {
+            "```\n\n```".to_string()
+        } else {
+            format!("```\n{selected_text}\n```")
+        };
+        let selected_char_count = selected_text.chars().count() as i32;
+
+        let mut delete_start = buffer.iter_at_offset(start_offset);
+        let mut delete_end = buffer.iter_at_offset(end_offset);
+        buffer.delete(&mut delete_start, &mut delete_end);
+
+        let mut insert_iter = buffer.iter_at_offset(start_offset);
+        buffer.insert(&mut insert_iter, &wrapped_text);
+
+        let selection_start = buffer.iter_at_offset(start_offset + 4);
+        let selection_end = buffer.iter_at_offset(start_offset + 4 + selected_char_count);
+        buffer.select_range(&selection_start, &selection_end);
+        imp.editor_view.grab_focus();
+    }
+
+    fn continue_list_on_enter(&self) -> bool {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return false;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        if buffer.has_selection() {
+            return false;
+        }
+
+        let insert = buffer.iter_at_mark(&buffer.get_insert());
+        let mut line_start = insert;
+        line_start.set_line_offset(0);
+        let mut line_end = line_start;
+        line_end.forward_to_line_end();
+
+        let line_text = buffer.text(&line_start, &line_end, true).to_string();
+        let trimmed = line_text.trim_start();
+        let indent: String = line_text
+            .chars()
+            .take_while(|ch| matches!(ch, ' ' | '\t'))
+            .collect();
+
+        let exit_list = |buffer: &gtk::TextBuffer, line_start_offset: i32, line_end_offset: i32| {
+            let mut delete_start = buffer.iter_at_offset(line_start_offset);
+            let mut delete_end = buffer.iter_at_offset(line_end_offset);
+            buffer.delete(&mut delete_start, &mut delete_end);
+            let mut insert_iter = buffer.iter_at_offset(line_start_offset);
+            buffer.insert(&mut insert_iter, "\n");
+        };
+
+        if let Some(rest) = trimmed
+            .strip_prefix("- [ ] ")
+            .or_else(|| trimmed.strip_prefix("* [ ] "))
+            .or_else(|| trimmed.strip_prefix("+ [ ] "))
+            .or_else(|| trimmed.strip_prefix("- [x] "))
+            .or_else(|| trimmed.strip_prefix("* [x] "))
+            .or_else(|| trimmed.strip_prefix("+ [x] "))
+            .or_else(|| trimmed.strip_prefix("- [X] "))
+            .or_else(|| trimmed.strip_prefix("* [X] "))
+            .or_else(|| trimmed.strip_prefix("+ [X] "))
+        {
+            if rest.trim().is_empty() {
+                exit_list(&buffer, line_start.offset(), line_end.offset());
+                return true;
+            }
+
+            let mut insert_iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut insert_iter, &format!("\n{indent}- [ ] "));
+            return true;
+        }
+
+        if let Some(rest) = trimmed
+            .strip_prefix("• ")
+            .or_else(|| trimmed.strip_prefix("- "))
+            .or_else(|| trimmed.strip_prefix("* "))
+            .or_else(|| trimmed.strip_prefix("+ "))
+        {
+            if rest.trim().is_empty() {
+                exit_list(&buffer, line_start.offset(), line_end.offset());
+                return true;
+            }
+
+            if !trimmed.starts_with("• ") {
+                let marker_start = line_start.offset() + indent.chars().count() as i32;
+                let mut delete_start = buffer.iter_at_offset(marker_start);
+                let mut delete_end = buffer.iter_at_offset(marker_start + 1);
+                buffer.delete(&mut delete_start, &mut delete_end);
+
+                let mut insert_iter = buffer.iter_at_offset(marker_start);
+                buffer.insert(&mut insert_iter, "•");
+            }
+
+            let mut insert_iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut insert_iter, &format!("\n{indent}• "));
+            return true;
+        }
+
+        if let Some(numbered) = self.strip_ordered_list_prefix(trimmed) {
+            if numbered.trim().is_empty() {
+                exit_list(&buffer, line_start.offset(), line_end.offset());
+                return true;
+            }
+
+            let number = trimmed
+                .split('.')
+                .next()
+                .and_then(|raw| raw.trim().parse::<usize>().ok())
+                .unwrap_or(0)
+                + 1;
+            let mut insert_iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut insert_iter, &format!("\n{indent}{number}. "));
+            return true;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("> ") {
+            if rest.trim().is_empty() {
+                exit_list(&buffer, line_start.offset(), line_end.offset());
+                return true;
+            }
+
+            let mut insert_iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut insert_iter, &format!("\n{indent}> "));
+            return true;
+        }
+
+        false
+    }
+
+    fn convert_leading_hyphen_to_bullet(&self) -> bool {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return false;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        if buffer.has_selection() {
+            return false;
+        }
+
+        let insert = buffer.iter_at_mark(&buffer.get_insert());
+        let mut line_start = insert;
+        line_start.set_line_offset(0);
+
+        let line_text = buffer.text(&line_start, &insert, true).to_string();
+        let indent: String = line_text
+            .chars()
+            .take_while(|ch| matches!(ch, ' ' | '\t'))
+            .collect();
+        let trimmed = line_text.trim_start();
+
+        if trimmed != "-" {
+            return false;
+        }
+
+        let marker_start = line_start.offset() + indent.chars().count() as i32;
+        let mut delete_start = buffer.iter_at_offset(marker_start);
+        let mut delete_end = buffer.iter_at_offset(marker_start + 1);
+        buffer.delete(&mut delete_start, &mut delete_end);
+
+        let mut insert_iter = buffer.iter_at_offset(marker_start);
+        buffer.insert(&mut insert_iter, "• ");
+
+        let cursor = buffer.iter_at_offset(marker_start + 2);
+        buffer.place_cursor(&cursor);
+        true
     }
 
     fn setup_editor_css(&self) {
@@ -511,9 +1019,18 @@ impl PennaFrontendWindow {
             .style(pango::Style::Italic)
             .build());
         add_tag(&gtk::TextTag::builder()
+            .name(TAG_STRIKETHROUGH)
+            .strikethrough(true)
+            .build());
+        add_tag(&gtk::TextTag::builder()
             .name(TAG_SYNTAX)
             .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
             .scale(0.01)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_LIST_MARKER)
+            .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
+            .weight(500)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_LIST_ITEM)
@@ -1029,14 +1546,14 @@ impl PennaFrontendWindow {
             }
 
             if let Some(marker_len) = Self::parse_checkbox_item(line_trimmed).map(|item| item.marker_len) {
-                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(&buffer, TAG_LIST_MARKER, line_start_offset, line_start_offset + marker_len);
                 Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset + marker_len, line_end_offset);
             } else if let Some(marker_len) = Self::parse_unordered_list_item(line_trimmed) {
-                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(&buffer, TAG_LIST_MARKER, line_start_offset, line_start_offset + marker_len);
                 Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset + marker_len, line_end_offset);
             } else if let Some(marker_len) = Self::parse_ordered_list_item(line_trimmed) {
                 Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset, line_end_offset);
-                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(&buffer, TAG_LIST_MARKER, line_start_offset, line_start_offset + marker_len);
             }
 
             if Self::is_horizontal_rule(line_trimmed) {
@@ -1060,7 +1577,7 @@ impl PennaFrontendWindow {
     }
 
     fn parse_unordered_list_item(line: &str) -> Option<usize> {
-        ["- ", "* ", "+ "]
+        ["• ", "- ", "* ", "+ "]
             .into_iter()
             .find_map(|prefix| line.strip_prefix(prefix).map(|_| prefix.chars().count()))
     }
@@ -1085,6 +1602,41 @@ impl PennaFrontendWindow {
                     checked: matches!(prefix.as_bytes().get(3), Some(b'x' | b'X')),
                 })
             })
+    }
+
+    fn expand_code_block_from_backticks(&self) -> bool {
+        let imp = self.imp();
+        if *imp.editor_viewer_mode.borrow() {
+            return false;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        if buffer.has_selection() {
+            return false;
+        }
+
+        let insert = buffer.iter_at_mark(&buffer.get_insert());
+        let mut line_start = insert;
+        line_start.set_line_offset(0);
+        let line_start_offset = line_start.offset();
+        let insert_offset = insert.offset();
+
+        let line_text = buffer.text(&line_start, &insert, true).to_string();
+        if line_text.trim() != "``" {
+            return false;
+        }
+
+        let mut delete_start = buffer.iter_at_offset(line_start_offset);
+        let mut delete_end = buffer.iter_at_offset(insert_offset);
+        buffer.delete(&mut delete_start, &mut delete_end);
+
+        let mut insert_iter = buffer.iter_at_offset(line_start_offset);
+        buffer.insert(&mut insert_iter, "```\n\n```");
+
+        let selection_start = buffer.iter_at_offset(line_start_offset + 4);
+        let selection_end = buffer.iter_at_offset(line_start_offset + 4);
+        buffer.select_range(&selection_start, &selection_end);
+        true
     }
 
     fn parse_link_at(text: &str) -> Option<LinkMatch> {
@@ -1129,6 +1681,7 @@ impl PennaFrontendWindow {
         let mut index = 0usize;
         let mut bold_start = None;
         let mut italic_start = None;
+        let mut strike_start = None;
         let mut code_start = None;
         let positions: Vec<(usize, usize, char)> = line
             .char_indices()
@@ -1160,6 +1713,18 @@ impl PennaFrontendWindow {
                     italic_start = Some(char_index);
                 }
                 index += 1;
+                continue;
+            }
+
+            if line[byte_index..].starts_with("~~") {
+                if let Some(start) = strike_start.take() {
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 2);
+                    Self::apply_tag_by_offset(buffer, TAG_STRIKETHROUGH, line_start_offset + start + 2, line_start_offset + char_index);
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 2);
+                } else {
+                    strike_start = Some(char_index);
+                }
+                index += 2;
                 continue;
             }
 
