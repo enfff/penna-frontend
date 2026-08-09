@@ -21,6 +21,7 @@
 use gtk::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gdk, gio, glib};
+use gtk::pango;
 
 use std::cell::RefCell;
 
@@ -30,11 +31,38 @@ const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
+const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
+const EDITOR_FONT_SIZE_MIN_PT: i32 = 10;
+const EDITOR_FONT_SIZE_MAX_PT: i32 = 28;
+const TAG_HEADING_1: &str = "md-heading-1";
+const TAG_HEADING_2: &str = "md-heading-2";
+const TAG_HEADING_3: &str = "md-heading-3";
+const TAG_HEADING_4: &str = "md-heading-4";
+const TAG_BLOCKQUOTE: &str = "md-blockquote";
+const TAG_CODE: &str = "md-code";
+const TAG_CODE_BLOCK: &str = "md-code-block";
+const TAG_BOLD: &str = "md-bold";
+const TAG_ITALIC: &str = "md-italic";
+const TAG_SYNTAX: &str = "md-syntax";
+const TAG_LIST_ITEM: &str = "md-list-item";
+const TAG_LINK: &str = "md-link";
+const TAG_CHECKED: &str = "md-checked";
+const TAG_RULE: &str = "md-rule";
+
+struct CheckboxItem {
+    marker_len: usize,
+    checked: bool,
+}
+
+struct LinkMatch {
+    label_len: usize,
+    total_len: usize,
+}
 
 mod imp {
     use super::*;
 
-    #[derive(Debug, Default, gtk::CompositeTemplate)]
+    #[derive(Debug, gtk::CompositeTemplate)]
     #[template(resource = "/com/github/pennafe/window.ui")]
     pub struct PennaFrontendWindow {
         #[template_child]
@@ -80,6 +108,42 @@ mod imp {
         pub last_entries_fingerprint: RefCell<Option<u64>>,
         pub in_editor_view: RefCell<bool>,
         pub header_visibility_locked: RefCell<bool>,
+        pub editor_css_provider: RefCell<Option<gtk::CssProvider>>,
+        pub editor_font_size_pt: RefCell<i32>,
+    }
+
+    impl Default for PennaFrontendWindow {
+        fn default() -> Self {
+            Self {
+                app_stack: TemplateChild::default(),
+                setup_page: TemplateChild::default(),
+                main_page: TemplateChild::default(),
+                content_stack: TemplateChild::default(),
+                notes_page: TemplateChild::default(),
+                editor_page: TemplateChild::default(),
+                repo_path_entry: TemplateChild::default(),
+                choose_repo_button: TemplateChild::default(),
+                connect_button: TemplateChild::default(),
+                setup_status_label: TemplateChild::default(),
+                sync_status_label: TemplateChild::default(),
+                notes_flowbox: TemplateChild::default(),
+                editor_view: TemplateChild::default(),
+                header_revealer: TemplateChild::default(),
+                app_header_bar: TemplateChild::default(),
+                main_menu_button: TemplateChild::default(),
+                back_to_grid_button: TemplateChild::default(),
+                engine: RefCell::default(),
+                current_handle: RefCell::default(),
+                current_entry_id: RefCell::default(),
+                entries_monitor: RefCell::default(),
+                refresh_source: RefCell::default(),
+                last_entries_fingerprint: RefCell::default(),
+                in_editor_view: RefCell::default(),
+                header_visibility_locked: RefCell::default(),
+                editor_css_provider: RefCell::default(),
+                editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
+            }
+        }
     }
 
     #[glib::object_subclass]
@@ -144,6 +208,26 @@ impl PennaFrontendWindow {
         ));
         self.add_action(&back_to_grid);
 
+        let zoom_in = gio::SimpleAction::new("zoom-in", None);
+        zoom_in.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.adjust_editor_zoom(1);
+            }
+        ));
+        self.add_action(&zoom_in);
+
+        let zoom_out = gio::SimpleAction::new("zoom-out", None);
+        zoom_out.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.adjust_editor_zoom(-1);
+            }
+        ));
+        self.add_action(&zoom_out);
+
         let change_repo = gio::SimpleAction::new("change-repo", None);
         change_repo.connect_activate(glib::clone!(
             #[weak(rename_to = window)]
@@ -159,6 +243,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
 
         self.setup_editor_css();
+        self.setup_editor_tags();
 
         imp.connect_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
@@ -181,6 +266,14 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 window.show_grid_view();
+            }
+        ));
+
+        imp.editor_view.buffer().connect_changed(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                window.apply_markdown_styling();
             }
         ));
 
@@ -223,21 +316,40 @@ impl PennaFrontendWindow {
         ));
         self.add_controller(motion);
 
+        let scroll = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::VERTICAL
+                | gtk::EventControllerScrollFlags::DISCRETE,
+        );
+        scroll.connect_scroll(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |controller, _, dy| {
+                let state = controller.current_event_state();
+                if !state.contains(gdk::ModifierType::CONTROL_MASK) {
+                    return glib::Propagation::Proceed;
+                }
+
+                if dy < 0.0 {
+                    window.adjust_editor_zoom(1);
+                } else if dy > 0.0 {
+                    window.adjust_editor_zoom(-1);
+                }
+
+                glib::Propagation::Stop
+            }
+        ));
+        imp.editor_view.add_controller(scroll);
+
         self.show_grid_view();
         self.initialize_repository_state();
     }
 
     fn setup_editor_css(&self) {
         let provider = gtk::CssProvider::new();
-        provider.load_from_data(
-            ".immersive-editor, .immersive-editor text {\
-                background-color: transparent;\
-                background-image: none;\
-            }\
-            .immersive-editor {\
-                border-radius: 0;\
-            }",
-        );
+        *self.imp().editor_css_provider.borrow_mut() = Some(provider.clone());
+        self.apply_editor_css();
 
         if let Some(display) = gdk::Display::default() {
             gtk::style_context_add_provider_for_display(
@@ -246,6 +358,130 @@ impl PennaFrontendWindow {
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
             );
         }
+    }
+
+    fn apply_editor_css(&self) {
+        let imp = self.imp();
+        let font_size = *imp.editor_font_size_pt.borrow();
+        if let Some(provider) = imp.editor_css_provider.borrow().as_ref() {
+            provider.load_from_string(&format!(
+                ".immersive-editor, .immersive-editor text {{\
+                    background-color: transparent;\
+                    background-image: none;\
+                    font-size: {font_size}pt;\
+                }}\
+                .immersive-editor {{\
+                    border-radius: 0;\
+                }}"
+            ));
+        }
+    }
+
+    fn setup_editor_tags(&self) {
+        let buffer = self.imp().editor_view.buffer();
+        let table = buffer.tag_table();
+
+        let add_tag = |tag: &gtk::TextTag| {
+            if table.lookup(tag.name().as_deref().unwrap_or_default()).is_none() {
+                table.add(tag);
+            }
+        };
+
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_HEADING_1)
+            .weight(700)
+            .scale(1.8)
+            .pixels_above_lines(12)
+            .pixels_below_lines(6)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_HEADING_2)
+            .weight(700)
+            .scale(1.5)
+            .pixels_above_lines(10)
+            .pixels_below_lines(5)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_HEADING_3)
+            .weight(700)
+            .scale(1.25)
+            .pixels_above_lines(8)
+            .pixels_below_lines(4)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_HEADING_4)
+            .weight(700)
+            .scale(1.1)
+            .pixels_above_lines(6)
+            .pixels_below_lines(3)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_BLOCKQUOTE)
+            .style(pango::Style::Italic)
+            .left_margin(18)
+            .pixels_above_lines(4)
+            .pixels_below_lines(4)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_CODE)
+            .family("monospace")
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_CODE_BLOCK)
+            .family("monospace")
+            .left_margin(18)
+            .right_margin(18)
+            .pixels_above_lines(6)
+            .pixels_below_lines(6)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_BOLD)
+            .weight(700)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_ITALIC)
+            .style(pango::Style::Italic)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_SYNTAX)
+            .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
+            .scale(0.01)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_LIST_ITEM)
+            .left_margin(18)
+            .pixels_above_lines(2)
+            .pixels_below_lines(2)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_LINK)
+            .underline(pango::Underline::Single)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_CHECKED)
+            .strikethrough(true)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_RULE)
+            .scale(0.85)
+            .weight(700)
+            .justification(gtk::Justification::Center)
+            .pixels_above_lines(6)
+            .pixels_below_lines(6)
+            .build());
+    }
+
+    fn adjust_editor_zoom(&self, delta: i32) {
+        let imp = self.imp();
+        let next_size = (*imp.editor_font_size_pt.borrow() + delta)
+            .clamp(EDITOR_FONT_SIZE_MIN_PT, EDITOR_FONT_SIZE_MAX_PT);
+
+        if next_size == *imp.editor_font_size_pt.borrow() {
+            return;
+        }
+
+        *imp.editor_font_size_pt.borrow_mut() = next_size;
+        self.apply_editor_css();
     }
 
     fn initialize_repository_state(&self) {
@@ -416,6 +652,7 @@ impl PennaFrontendWindow {
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
         imp.editor_view.buffer().set_text(&content);
+        self.apply_markdown_styling();
         self.show_editor_view();
     }
 
@@ -674,6 +911,246 @@ impl PennaFrontendWindow {
         }
 
         out
+    }
+
+    fn apply_markdown_styling(&self) {
+        let imp = self.imp();
+        let buffer = imp.editor_view.buffer();
+        let (start, end) = buffer.bounds();
+        buffer.remove_all_tags(&start, &end);
+
+        let text = buffer.text(&start, &end, true).to_string();
+        let mut line_start_offset = 0usize;
+        let mut in_code_block = false;
+
+        for line in text.lines() {
+            let line_char_len = line.chars().count();
+            let line_end_offset = line_start_offset + line_char_len;
+            let line_trimmed = line.trim_end();
+
+            if line_trimmed.starts_with("```") {
+                in_code_block = !in_code_block;
+                Self::apply_tag_by_offset(&buffer, TAG_CODE_BLOCK, line_start_offset, line_end_offset);
+                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_end_offset);
+                line_start_offset = line_end_offset + 1;
+                continue;
+            }
+
+            if in_code_block {
+                Self::apply_tag_by_offset(&buffer, TAG_CODE_BLOCK, line_start_offset, line_end_offset);
+                line_start_offset = line_end_offset + 1;
+                continue;
+            }
+
+            if let Some((level, marker_len)) = Self::parse_heading(line_trimmed) {
+                let tag = match level {
+                    1 => TAG_HEADING_1,
+                    2 => TAG_HEADING_2,
+                    3 => TAG_HEADING_3,
+                    _ => TAG_HEADING_4,
+                };
+                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(&buffer, tag, line_start_offset + marker_len, line_end_offset);
+            }
+
+            if let Some(content) = line_trimmed.strip_prefix("> ") {
+                let prefix_len = line_trimmed.chars().count() - content.chars().count();
+                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + prefix_len);
+                Self::apply_tag_by_offset(&buffer, TAG_BLOCKQUOTE, line_start_offset + prefix_len, line_end_offset);
+            }
+
+            if let Some(marker_len) = Self::parse_checkbox_item(line_trimmed).map(|item| item.marker_len) {
+                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset + marker_len, line_end_offset);
+            } else if let Some(marker_len) = Self::parse_unordered_list_item(line_trimmed) {
+                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset + marker_len, line_end_offset);
+            } else if let Some(marker_len) = Self::parse_ordered_list_item(line_trimmed) {
+                Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset, line_end_offset);
+                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
+            }
+
+            if Self::is_horizontal_rule(line_trimmed) {
+                Self::apply_tag_by_offset(&buffer, TAG_RULE, line_start_offset, line_end_offset);
+            }
+
+            Self::apply_inline_markdown_tags(&buffer, line, line_start_offset);
+            line_start_offset = line_end_offset + 1;
+        }
+    }
+
+    fn parse_heading(line: &str) -> Option<(usize, usize)> {
+        let hashes = line.chars().take_while(|ch| *ch == '#').count();
+        if hashes == 0 || hashes > 6 {
+            return None;
+        }
+
+        line.get(hashes..)
+            .and_then(|rest| rest.strip_prefix(' '))
+            .map(|_| (hashes, hashes + 1))
+    }
+
+    fn parse_unordered_list_item(line: &str) -> Option<usize> {
+        ["- ", "* ", "+ "]
+            .into_iter()
+            .find_map(|prefix| line.strip_prefix(prefix).map(|_| prefix.chars().count()))
+    }
+
+    fn parse_ordered_list_item(line: &str) -> Option<usize> {
+        let dot_index = line.find(". ")?;
+        let (number, rest) = line.split_at(dot_index);
+        if number.chars().all(|ch| ch.is_ascii_digit()) {
+            rest.strip_prefix(". ")
+                .map(|_| line[..(dot_index + 2)].chars().count())
+        } else {
+            None
+        }
+    }
+
+    fn parse_checkbox_item(line: &str) -> Option<CheckboxItem> {
+        ["- [ ] ", "* [ ] ", "+ [ ] ", "- [x] ", "* [x] ", "+ [x] ", "- [X] ", "* [X] ", "+ [X] "]
+            .into_iter()
+            .find_map(|prefix| {
+                line.strip_prefix(prefix).map(|_| CheckboxItem {
+                    marker_len: prefix.chars().count(),
+                    checked: matches!(prefix.as_bytes().get(3), Some(b'x' | b'X')),
+                })
+            })
+    }
+
+    fn parse_link_at(text: &str) -> Option<LinkMatch> {
+        if !text.starts_with('[') {
+            return None;
+        }
+
+        let close_label = text.find(']')?;
+        let after_label = text.get((close_label + 1)..)?;
+        if !after_label.starts_with('(') {
+            return None;
+        }
+
+        let close_url_rel = after_label.find(')')?;
+        if close_label <= 1 || close_url_rel <= 1 {
+            return None;
+        }
+
+        let total_byte_len = close_label + 1 + close_url_rel + 1;
+
+        Some(LinkMatch {
+            label_len: text[1..close_label].chars().count(),
+            total_len: text[..total_byte_len].chars().count(),
+        })
+    }
+
+    fn is_horizontal_rule(line: &str) -> bool {
+        let compact: String = line.chars().filter(|ch| !ch.is_whitespace()).collect();
+        if compact.len() < 3 {
+            return false;
+        }
+
+        let mut chars = compact.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+
+        matches!(first, '-' | '*' | '_') && chars.all(|ch| ch == first)
+    }
+
+    fn apply_inline_markdown_tags(buffer: &gtk::TextBuffer, line: &str, line_start_offset: usize) {
+        let mut index = 0usize;
+        let mut bold_start = None;
+        let mut italic_start = None;
+        let mut code_start = None;
+        let positions: Vec<(usize, usize, char)> = line
+            .char_indices()
+            .enumerate()
+            .map(|(char_index, (byte_index, ch))| (char_index, byte_index, ch))
+            .collect();
+
+        while index < positions.len() {
+            let (char_index, byte_index, ch) = positions[index];
+
+            if line[byte_index..].starts_with("**") {
+                if let Some(start) = bold_start.take() {
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 2);
+                    Self::apply_tag_by_offset(buffer, TAG_BOLD, line_start_offset + start + 2, line_start_offset + char_index);
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 2);
+                } else {
+                    bold_start = Some(char_index);
+                }
+                index += 2;
+                continue;
+            }
+
+            if ch == '*' {
+                if let Some(start) = italic_start.take() {
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 1);
+                    Self::apply_tag_by_offset(buffer, TAG_ITALIC, line_start_offset + start + 1, line_start_offset + char_index);
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 1);
+                } else {
+                    italic_start = Some(char_index);
+                }
+                index += 1;
+                continue;
+            }
+
+            if ch == '`' {
+                if let Some(start) = code_start.take() {
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 1);
+                    Self::apply_tag_by_offset(buffer, TAG_CODE, line_start_offset + start + 1, line_start_offset + char_index);
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 1);
+                } else {
+                    code_start = Some(char_index);
+                }
+                index += 1;
+                continue;
+            }
+
+            if ch == '[' {
+                if let Some(link) = Self::parse_link_at(&line[byte_index..]) {
+                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 1);
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_LINK,
+                        line_start_offset + char_index + 1,
+                        line_start_offset + char_index + 1 + link.label_len,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + char_index + 1 + link.label_len,
+                        line_start_offset + char_index + link.total_len,
+                    );
+                    index += link.total_len;
+                    continue;
+                }
+            }
+
+            index += 1;
+        }
+
+        if let Some(item) = Self::parse_checkbox_item(line) {
+            if item.checked {
+                Self::apply_tag_by_offset(buffer, TAG_CHECKED, line_start_offset + item.marker_len, line_start_offset + line.chars().count());
+            }
+        }
+    }
+
+    fn apply_tag_by_offset(buffer: &gtk::TextBuffer, tag_name: &str, start_offset: usize, end_offset: usize) {
+        if start_offset >= end_offset {
+            return;
+        }
+
+        let Ok(start) = i32::try_from(start_offset) else {
+            return;
+        };
+        let Ok(end) = i32::try_from(end_offset) else {
+            return;
+        };
+
+        let start_iter = buffer.iter_at_offset(start);
+        let end_iter = buffer.iter_at_offset(end);
+        buffer.apply_tag_by_name(tag_name, &start_iter, &end_iter);
     }
 
     fn show_grid_view(&self) {
