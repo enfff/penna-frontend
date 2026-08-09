@@ -132,6 +132,25 @@
                   </object>
                 </child>
                 <child>
+                  <object class="GtkRevealer" id="notes_search_revealer">
+                    <property name="transition-type">slide-down</property>
+                    <property name="transition-duration">180</property>
+                    <property name="reveal-child">False</property>
+                    <property name="child">
+                      <object class="AdwClamp">
+                        <property name="maximum-size">360</property>
+                        <property name="tightening-threshold">360</property>
+                        <property name="child">
+                          <object class="GtkSearchEntry" id="notes_search_entry">
+                            <property name="placeholder-text" translatable="yes">Search title and content</property>
+                            <property name="hexpand">True</property>
+                          </object>
+                        </property>
+                      </object>
+                    </property>
+                  </object>
+                </child>
+                <child>
                   <object class="GtkStack" id="content_stack">
                     <property name="vexpand">True</property>
                     <child>

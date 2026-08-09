@@ -91,6 +91,10 @@ mod imp {
         #[template_child]
         pub sync_status_label: TemplateChild<gtk::Label>,
         #[template_child]
+        pub notes_search_revealer: TemplateChild<gtk::Revealer>,
+        #[template_child]
+        pub notes_search_entry: TemplateChild<gtk::SearchEntry>,
+        #[template_child]
         pub notes_flowbox: TemplateChild<gtk::FlowBox>,
         #[template_child]
         pub editor_view: TemplateChild<gtk::TextView>,
@@ -112,6 +116,7 @@ mod imp {
         pub refresh_source: RefCell<Option<glib::SourceId>>,
         pub last_entries_fingerprint: RefCell<Option<u64>>,
         pub in_editor_view: RefCell<bool>,
+        pub in_notes_grid_view: RefCell<bool>,
         pub header_visibility_locked: RefCell<bool>,
         pub editor_css_provider: RefCell<Option<gtk::CssProvider>>,
         pub editor_font_size_pt: RefCell<i32>,
@@ -132,6 +137,8 @@ mod imp {
                 connect_button: TemplateChild::default(),
                 setup_status_label: TemplateChild::default(),
                 sync_status_label: TemplateChild::default(),
+                notes_search_revealer: TemplateChild::default(),
+                notes_search_entry: TemplateChild::default(),
                 notes_flowbox: TemplateChild::default(),
                 editor_view: TemplateChild::default(),
                 header_revealer: TemplateChild::default(),
@@ -146,6 +153,7 @@ mod imp {
                 refresh_source: RefCell::default(),
                 last_entries_fingerprint: RefCell::default(),
                 in_editor_view: RefCell::default(),
+                in_notes_grid_view: RefCell::default(),
                 header_visibility_locked: RefCell::default(),
                 editor_css_provider: RefCell::default(),
                 editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
@@ -460,6 +468,53 @@ impl PennaFrontendWindow {
                 imp.editor_view.scroll_to_iter(&mut iter, 0.2, false, 0.0, 0.9);
             }
         ));
+
+        imp.notes_search_entry.connect_search_changed(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                window.refresh_notes_grid();
+                window.update_notes_search_reveal();
+            }
+        ));
+
+        let typeahead = gtk::EventControllerKey::new();
+        typeahead.connect_key_pressed(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, keyval, _, state| {
+                let imp = window.imp();
+                if !*imp.in_notes_grid_view.borrow() || *imp.in_editor_view.borrow() {
+                    return glib::Propagation::Proceed;
+                }
+
+                if imp.notes_search_entry.has_focus() {
+                    return glib::Propagation::Proceed;
+                }
+
+                let disallowed = gdk::ModifierType::CONTROL_MASK
+                    | gdk::ModifierType::ALT_MASK
+                    | gdk::ModifierType::META_MASK
+                    | gdk::ModifierType::SUPER_MASK;
+                if state.intersects(disallowed) {
+                    return glib::Propagation::Proceed;
+                }
+
+                let Some(ch) = keyval.to_unicode() else {
+                    return glib::Propagation::Proceed;
+                };
+
+                if ch.is_control() {
+                    return glib::Propagation::Proceed;
+                }
+
+                window.start_notes_search(ch);
+                glib::Propagation::Stop
+            }
+        ));
+        self.add_controller(typeahead);
 
         imp.main_menu_button.connect_notify_local(
             Some("active"),
@@ -1161,6 +1216,8 @@ impl PennaFrontendWindow {
             return;
         };
 
+        let query = imp.notes_search_entry.text().trim().to_lowercase();
+
         while let Some(child) = imp.notes_flowbox.first_child() {
             imp.notes_flowbox.remove(&child);
         }
@@ -1175,6 +1232,10 @@ impl PennaFrontendWindow {
                 let engine = imp.engine.borrow();
                 engine.get_entry(handle, entry_id).unwrap_or_default()
             };
+
+            if !Self::entry_matches_query(entry_id, &content, &query) {
+                continue;
+            }
 
             let button = gtk::Button::new();
             button.add_css_class("card");
@@ -1222,6 +1283,38 @@ impl PennaFrontendWindow {
             );
             imp.sync_status_label.set_label(&details);
         }
+    }
+
+    fn entry_matches_query(entry_id: &str, content: &str, query: &str) -> bool {
+        if query.is_empty() {
+            return true;
+        }
+
+        let entry_id = entry_id.to_lowercase();
+        let content = content.to_lowercase();
+        entry_id.contains(query) || content.contains(query)
+    }
+
+    fn start_notes_search(&self, ch: char) {
+        let imp = self.imp();
+        if *imp.in_editor_view.borrow() || !*imp.in_notes_grid_view.borrow() {
+            return;
+        }
+
+        let mut text = imp.notes_search_entry.text().to_string();
+        text.push(ch);
+        imp.notes_search_revealer.set_reveal_child(true);
+        imp.notes_search_entry.set_text(&text);
+        imp.notes_search_entry.set_position(text.chars().count() as i32);
+        imp.notes_search_entry.grab_focus();
+    }
+
+    fn update_notes_search_reveal(&self) {
+        let imp = self.imp();
+        let reveal = *imp.in_notes_grid_view.borrow()
+            && !*imp.in_editor_view.borrow()
+            && !imp.notes_search_entry.text().trim().is_empty();
+        imp.notes_search_revealer.set_reveal_child(reveal);
     }
 
     fn open_entry(&self, entry_id: &str) {
@@ -1790,6 +1883,7 @@ impl PennaFrontendWindow {
     fn show_grid_view(&self) {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
+        *imp.in_notes_grid_view.borrow_mut() = true;
         imp.content_stack.set_visible_child(&*imp.notes_page);
         imp.app_header_bar.set_visible(true);
         imp.header_revealer.set_reveal_child(true);
@@ -1799,11 +1893,13 @@ impl PennaFrontendWindow {
         imp.main_page.set_margin_start(MAIN_PAGE_MARGIN_NORMAL);
         imp.main_page.set_margin_end(MAIN_PAGE_MARGIN_NORMAL);
         imp.back_to_grid_button.set_visible(false);
+        self.update_notes_search_reveal();
     }
 
     fn show_setup_page(&self) {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
+        *imp.in_notes_grid_view.borrow_mut() = false;
         self.stop_repo_watchers();
         imp.app_stack.set_visible_child(&*imp.setup_page);
         imp.app_header_bar.set_visible(true);
@@ -1821,6 +1917,7 @@ impl PennaFrontendWindow {
     fn show_editor_view(&self) {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = true;
+        *imp.in_notes_grid_view.borrow_mut() = false;
         imp.content_stack.set_visible_child(&*imp.editor_page);
         imp.app_header_bar.set_visible(true);
         if *imp.header_visibility_locked.borrow() {
@@ -1834,6 +1931,7 @@ impl PennaFrontendWindow {
         imp.main_page.set_margin_start(0);
         imp.main_page.set_margin_end(0);
         imp.back_to_grid_button.set_visible(true);
+        self.update_notes_search_reveal();
     }
 
     fn update_editor_header_reveal(&self, pointer_y: f64) {
