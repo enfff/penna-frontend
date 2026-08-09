@@ -4,12 +4,33 @@
   <requires lib="Adw" version="1.0"/>
   <template class="PennaFrontendWindow" parent="AdwApplicationWindow">
     <property name="title" translatable="yes">Penna-frontend</property>
-    <property name="default-width">800</property>
-    <property name="default-height">600</property>
+    <property name="default-width">1080</property>
+    <property name="default-height">700</property>
     <property name="content">
       <object class="AdwToolbarView">
         <child type="top">
           <object class="AdwHeaderBar">
+            <child type="start">
+              <object class="GtkButton" id="back_to_grid_button">
+                <property name="visible">False</property>
+                <property name="icon-name">go-previous-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Back to notes grid</property>
+              </object>
+            </child>
+            <child type="start">
+              <object class="GtkLabel">
+                <property name="label" translatable="yes">Penna Journal</property>
+                <style>
+                  <class name="title-4"/>
+                </style>
+              </object>
+            </child>
+            <child type="end">
+              <object class="GtkButton" id="save_button">
+                <property name="label" translatable="yes">Save</property>
+                <property name="tooltip-text" translatable="yes">Save current note (Ctrl+S)</property>
+              </object>
+            </child>
             <child type="end">
               <object class="GtkMenuButton">
                 <property name="primary">True</property>
@@ -21,25 +42,166 @@
           </object>
         </child>
         <property name="content">
-          <object class="GtkLabel" id="label">
-            <property name="label" translatable="yes">Hello, World!</property>
-            <style>
-              <class name="title-1"/>
-            </style>
+          <object class="GtkStack" id="app_stack">
+            <property name="vexpand">True</property>
+            <child>
+              <object class="GtkBox" id="setup_page">
+                <property name="orientation">vertical</property>
+                <property name="spacing">16</property>
+                <property name="valign">center</property>
+                <property name="halign">center</property>
+                <property name="margin-top">24</property>
+                <property name="margin-bottom">24</property>
+                <property name="margin-start">24</property>
+                <property name="margin-end">24</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label" translatable="yes">Connect journal repository</property>
+                    <style>
+                      <class name="title-2"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">8</property>
+                    <child>
+                      <object class="GtkEntry" id="repo_path_entry">
+                        <property name="hexpand">True</property>
+                        <property name="width-chars">56</property>
+                        <property name="editable">False</property>
+                        <property name="placeholder-text" translatable="yes">Choose repository folder</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkButton" id="choose_repo_button">
+                        <property name="label" translatable="yes">Choose Folder</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="connect_button">
+                    <property name="label" translatable="yes">Connect</property>
+                    <property name="halign">center</property>
+                    <style>
+                      <class name="suggested-action"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="setup_status_label">
+                    <property name="wrap">True</property>
+                    <property name="max-width-chars">80</property>
+                    <property name="xalign">0.5</property>
+                    <property name="label" translatable="yes">Select your journal repository to continue.</property>
+                    <style>
+                      <class name="dim-label"/>
+                    </style>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox" id="main_page">
+                <property name="orientation">vertical</property>
+                <property name="spacing">8</property>
+                <property name="margin-top">12</property>
+                <property name="margin-bottom">12</property>
+                <property name="margin-start">12</property>
+                <property name="margin-end">12</property>
+                <child>
+                  <object class="GtkLabel" id="sync_status_label">
+                    <property name="wrap">True</property>
+                    <property name="max-width-chars">100</property>
+                    <property name="xalign">0.0</property>
+                    <property name="label" translatable="yes">Ready</property>
+                    <style>
+                      <class name="dim-label"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkStack" id="content_stack">
+                    <property name="vexpand">True</property>
+                    <child>
+                      <object class="GtkScrolledWindow" id="notes_page">
+                        <property name="hscrollbar-policy">never</property>
+                        <property name="min-content-width">280</property>
+                        <property name="child">
+                          <object class="AdwClamp">
+                            <property name="maximum-size">1080</property>
+                            <property name="tightening-threshold">560</property>
+                            <property name="child">
+                              <object class="GtkFlowBox" id="notes_flowbox">
+                                <property name="valign">start</property>
+                                <property name="halign">center</property>
+                                <property name="homogeneous">False</property>
+                                <property name="selection-mode">none</property>
+                                <property name="column-spacing">8</property>
+                                <property name="row-spacing">8</property>
+                                <property name="min-children-per-line">1</property>
+                                <property name="max-children-per-line">4</property>
+                                <property name="margin-top">8</property>
+                                <property name="margin-bottom">8</property>
+                                <property name="margin-start">8</property>
+                                <property name="margin-end">8</property>
+                              </object>
+                            </property>
+                          </object>
+                        </property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="editor_page">
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">8</property>
+                        <child>
+                          <object class="GtkLabel" id="entry_title_label">
+                            <property name="xalign">0.0</property>
+                            <property name="label" translatable="yes">No note selected</property>
+                            <style>
+                              <class name="title-3"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkScrolledWindow">
+                            <property name="vexpand">True</property>
+                            <property name="child">
+                              <object class="GtkTextView" id="editor_view">
+                                <property name="wrap-mode">word-char</property>
+                                <property name="monospace">False</property>
+                                <property name="top-margin">10</property>
+                                <property name="bottom-margin">10</property>
+                                <property name="left-margin">10</property>
+                                <property name="right-margin">10</property>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
           </object>
         </property>
       </object>
     </property>
   </template>
+
   <menu id="primary_menu">
     <section>
       <item>
-        <attribute name="label" translatable="yes">_Preferences</attribute>
-        <attribute name="action">app.preferences</attribute>
+        <attribute name="label" translatable="yes">_Change Repository</attribute>
+        <attribute name="action">win.change-repo</attribute>
       </item>
       <item>
-        <attribute name="label" translatable="yes">_Keyboard Shortcuts</attribute>
-        <attribute name="action">app.shortcuts</attribute>
+        <attribute name="label" translatable="yes">_Quit</attribute>
+        <attribute name="action">app.quit</attribute>
       </item>
       <item>
         <attribute name="label" translatable="yes">_About Penna-frontend</attribute>

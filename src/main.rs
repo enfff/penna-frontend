@@ -20,6 +20,7 @@
 
 mod application;
 mod config;
+mod engine;
 mod window;
 
 use self::application::PennaFrontendApplication;
