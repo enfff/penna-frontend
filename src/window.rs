@@ -601,10 +601,60 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Stop;
                 }
 
+                if matches!(keyval, gdk::Key::Escape) {
+                    window.show_grid_view();
+                    return glib::Propagation::Stop;
+                }
+
                 glib::Propagation::Proceed
             }
         ));
         imp.editor_view.add_controller(key_controller);
+
+        let grid_key_controller = gtk::EventControllerKey::new();
+        grid_key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
+        grid_key_controller.connect_key_pressed(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, keyval, _, _| {
+                let imp = window.imp();
+                if !*imp.in_notes_grid_view.borrow() || *imp.in_editor_view.borrow() {
+                    return glib::Propagation::Proceed;
+                }
+
+                if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter) {
+                    if let Some(button) = window.focused_note_button() {
+                        let entry_id = button.widget_name().to_string();
+                        if !entry_id.is_empty() {
+                            window.open_entry(&entry_id);
+                            return glib::Propagation::Stop;
+                        }
+                    }
+                    return glib::Propagation::Proceed;
+                }
+
+                let direction = if matches!(keyval, gdk::Key::Left | gdk::Key::KP_Left) {
+                    "left"
+                } else if matches!(keyval, gdk::Key::Right | gdk::Key::KP_Right) {
+                    "right"
+                } else if matches!(keyval, gdk::Key::Up | gdk::Key::KP_Up) {
+                    "up"
+                } else if matches!(keyval, gdk::Key::Down | gdk::Key::KP_Down) {
+                    "down"
+                } else {
+                    return glib::Propagation::Proceed;
+                };
+
+                if window.move_note_focus(direction) {
+                    return glib::Propagation::Stop;
+                }
+
+                glib::Propagation::Proceed
+            }
+        ));
+        imp.main_page.add_controller(grid_key_controller);
 
         self.load_editor_preferences();
         self.show_grid_view();
@@ -1172,7 +1222,6 @@ impl PennaFrontendWindow {
                 imp.sync_status_label.set_label(&details);
                 imp.setup_status_label.set_label(&details);
 
-                self.ensure_entry_exists();
                 self.refresh_notes_grid();
                 self.start_repo_watchers();
                 self.show_main_page();
@@ -1183,31 +1232,6 @@ impl PennaFrontendWindow {
                 imp.sync_status_label.set_label(&err);
             }
         }
-    }
-
-    fn ensure_entry_exists(&self) {
-        let imp = self.imp();
-        let Some(handle) = *imp.current_handle.borrow() else {
-            return;
-        };
-
-        let has_entries = {
-            let engine = imp.engine.borrow();
-            !engine.list_entries(handle).is_empty()
-        };
-
-        if has_entries {
-            return;
-        }
-
-        let now = glib::DateTime::now_local()
-            .ok()
-            .and_then(|d| d.format("%Y%m%d%H%M").ok())
-            .map(|s| format!("{s}.md"))
-            .unwrap_or_else(|| "202601010000.md".to_string());
-
-        let mut engine = imp.engine.borrow_mut();
-        let _ = engine.create_entry(handle, &now, "");
     }
 
     fn refresh_notes_grid(&self) {
@@ -1227,6 +1251,8 @@ impl PennaFrontendWindow {
             engine.list_entries(handle)
         };
 
+        let mut first_visible_button: Option<gtk::Button> = None;
+
         for entry_id in &entries {
             let content = {
                 let engine = imp.engine.borrow();
@@ -1240,8 +1266,9 @@ impl PennaFrontendWindow {
             let button = gtk::Button::new();
             button.add_css_class("card");
             button.add_css_class("flat");
-            button.set_width_request(260);
-            button.set_halign(gtk::Align::Start);
+            button.set_hexpand(true);
+            button.set_halign(gtk::Align::Fill);
+            button.set_widget_name(entry_id);
 
             let card_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
             card_box.set_margin_top(10);
@@ -1273,7 +1300,16 @@ impl PennaFrontendWindow {
                     window.open_entry(entry_id.as_str());
                 }
             ));
+            if first_visible_button.is_none() {
+                first_visible_button = Some(button.clone());
+            }
             imp.notes_flowbox.insert(&button, -1);
+        }
+
+        if query.is_empty() && *imp.in_notes_grid_view.borrow() {
+            if let Some(button) = first_visible_button {
+                button.grab_focus();
+            }
         }
 
         if let Some(status) = imp.engine.borrow().journal_status(handle) {
@@ -1293,6 +1329,112 @@ impl PennaFrontendWindow {
         let entry_id = entry_id.to_lowercase();
         let content = content.to_lowercase();
         entry_id.contains(query) || content.contains(query)
+    }
+
+    fn note_buttons(&self) -> Vec<gtk::Button> {
+        let imp = self.imp();
+        let mut out = Vec::new();
+        let mut child = imp.notes_flowbox.first_child();
+
+        while let Some(flow_child) = child {
+            if let Some(inner) = flow_child.first_child() {
+                if let Ok(button) = inner.downcast::<gtk::Button>() {
+                    out.push(button);
+                }
+            }
+            child = flow_child.next_sibling();
+        }
+
+        out
+    }
+
+    fn note_buttons_with_positions(&self) -> Vec<(gtk::Button, i32, i32)> {
+        let imp = self.imp();
+        let mut out = Vec::new();
+        let mut child = imp.notes_flowbox.first_child();
+
+        while let Some(flow_child) = child {
+            let alloc = flow_child.allocation();
+            if let Some(inner) = flow_child.first_child() {
+                if let Ok(button) = inner.downcast::<gtk::Button>() {
+                    let center_x = alloc.x() + alloc.width() / 2;
+                    let center_y = alloc.y() + alloc.height() / 2;
+                    out.push((button, center_x, center_y));
+                }
+            }
+            child = flow_child.next_sibling();
+        }
+
+        out
+    }
+
+    fn focused_note_button(&self) -> Option<gtk::Button> {
+        self.note_buttons().into_iter().find(|button| button.has_focus())
+    }
+
+    fn move_note_focus(&self, direction: &str) -> bool {
+        let buttons = self.note_buttons_with_positions();
+        if buttons.is_empty() {
+            return false;
+        }
+
+        let current = buttons
+            .iter()
+            .position(|(button, _, _)| button.has_focus())
+            .unwrap_or(0);
+
+        let (_, current_x, current_y) = &buttons[current];
+
+        let mut best: Option<(usize, i32, i32)> = None;
+
+        for (idx, (_, x, y)) in buttons.iter().enumerate() {
+            if idx == current {
+                continue;
+            }
+
+            let primary_delta = match direction {
+                "left" if *x < *current_x => *current_x - *x,
+                "right" if *x > *current_x => *x - *current_x,
+                "up" if *y < *current_y => *current_y - *y,
+                "down" if *y > *current_y => *y - *current_y,
+                _ => continue,
+            };
+
+            let secondary_delta = match direction {
+                "left" | "right" => (*y - *current_y).abs(),
+                "up" | "down" => (*x - *current_x).abs(),
+                _ => 0,
+            };
+
+            match best {
+                None => best = Some((idx, primary_delta, secondary_delta)),
+                Some((_, best_primary, best_secondary)) => {
+                    if primary_delta < best_primary
+                        || (primary_delta == best_primary && secondary_delta < best_secondary)
+                    {
+                        best = Some((idx, primary_delta, secondary_delta));
+                    }
+                }
+            }
+        }
+
+        if let Some((target_idx, _, _)) = best {
+            let (button, _, _) = &buttons[target_idx];
+            button.grab_focus();
+            return true;
+        }
+
+        // Keep left/right ergonomic at row edges by falling back to linear traversal.
+        if matches!(direction, "left" | "right") {
+            let delta = if direction == "left" { -1 } else { 1 };
+            let target = (current as i32 + delta).clamp(0, buttons.len() as i32 - 1) as usize;
+            if let Some((button, _, _)) = buttons.get(target) {
+                button.grab_focus();
+                return true;
+            }
+        }
+
+        false
     }
 
     fn start_notes_search(&self, ch: char) {

@@ -165,7 +165,7 @@
                               <object class="GtkFlowBox" id="notes_flowbox">
                                 <property name="valign">start</property>
                                 <property name="halign">center</property>
-                                <property name="homogeneous">False</property>
+                                <property name="homogeneous">True</property>
                                 <property name="selection-mode">none</property>
                                 <property name="column-spacing">8</property>
                                 <property name="row-spacing">8</property>
