@@ -26,6 +26,9 @@ use gtk::{gio, glib};
 use crate::config::VERSION;
 use crate::PennaFrontendWindow;
 
+const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
+const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
+
 mod imp {
     use super::*;
 
@@ -87,13 +90,53 @@ impl PennaFrontendApplication {
     }
 
     fn setup_gactions(&self) {
+        let preferences_action = gio::ActionEntry::builder("preferences")
+            .activate(move |app: &Self, _, _| app.show_preferences())
+            .build();
         let quit_action = gio::ActionEntry::builder("quit")
             .activate(move |app: &Self, _, _| app.quit())
             .build();
         let about_action = gio::ActionEntry::builder("about")
             .activate(move |app: &Self, _, _| app.show_about())
             .build();
-        self.add_action_entries([quit_action, about_action]);
+        self.add_action_entries([preferences_action, quit_action, about_action]);
+    }
+
+    fn show_preferences(&self) {
+        let Some(window) = self.active_window() else {
+            return;
+        };
+
+        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let confetti_active = settings.boolean(SETTINGS_CONFETTI_KEY);
+
+        let prefs = adw::PreferencesWindow::builder()
+            .title("Preferences")
+            .modal(true)
+            .transient_for(&window)
+            .default_width(460)
+            .default_height(520)
+            .build();
+
+        let page = adw::PreferencesPage::new();
+        let group = adw::PreferencesGroup::builder()
+            .title("General")
+            .build();
+
+        let mock_row = adw::SwitchRow::builder()
+            .title("Enable confetti mode")
+            .subtitle("Mocked preference for now")
+            .active(confetti_active)
+            .build();
+
+        mock_row.connect_active_notify(move |row| {
+            let _ = settings.set_boolean(SETTINGS_CONFETTI_KEY, row.is_active());
+        });
+
+        group.add(&mock_row);
+        page.add(&group);
+        prefs.add(&page);
+        prefs.present();
     }
 
     fn show_about(&self) {
