@@ -10,22 +10,19 @@
       <object class="AdwToolbarView">
         <child type="top">
           <object class="GtkRevealer" id="header_revealer">
-            <property name="transition-type">crossfade</property>
+            <property name="transition-type">slide-down</property>
             <property name="transition-duration">220</property>
             <property name="reveal-child">True</property>
             <property name="child">
               <object class="AdwHeaderBar" id="app_header_bar">
+                <style>
+                  <class name="flat"/>
+                </style>
                 <child type="start">
                   <object class="GtkButton" id="back_to_grid_button">
                     <property name="visible">False</property>
                     <property name="icon-name">go-previous-symbolic</property>
                     <property name="tooltip-text" translatable="yes">Back to notes grid</property>
-                  </object>
-                </child>
-                <child type="end">
-                  <object class="GtkButton" id="save_button">
-                    <property name="label" translatable="yes">Save</property>
-                    <property name="tooltip-text" translatable="yes">Save current note (Ctrl+S)</property>
                   </object>
                 </child>
                 <child type="end">
@@ -156,18 +153,32 @@
                     <child>
                       <object class="GtkBox" id="editor_page">
                         <property name="orientation">vertical</property>
-                        <property name="spacing">8</property>
+                        <property name="spacing">0</property>
                         <child>
                           <object class="GtkScrolledWindow">
+                            <property name="hscrollbar-policy">never</property>
                             <property name="vexpand">True</property>
                             <property name="child">
-                              <object class="GtkTextView" id="editor_view">
-                                <property name="wrap-mode">word-char</property>
-                                <property name="monospace">False</property>
-                                <property name="top-margin">10</property>
-                                <property name="bottom-margin">10</property>
-                                <property name="left-margin">10</property>
-                                <property name="right-margin">10</property>
+                              <object class="AdwClamp">
+                                <property name="maximum-size">900</property>
+                                <property name="tightening-threshold">560</property>
+                                <property name="margin-top">20</property>
+                                <property name="margin-bottom">20</property>
+                                <property name="margin-start">20</property>
+                                <property name="margin-end">20</property>
+                                <property name="child">
+                                  <object class="GtkTextView" id="editor_view">
+                                    <property name="wrap-mode">word-char</property>
+                                    <property name="monospace">False</property>
+                                    <property name="top-margin">16</property>
+                                    <property name="bottom-margin">16</property>
+                                    <property name="left-margin">16</property>
+                                    <property name="right-margin">16</property>
+                                    <style>
+                                      <class name="immersive-editor"/>
+                                    </style>
+                                  </object>
+                                </property>
                               </object>
                             </property>
                           </object>

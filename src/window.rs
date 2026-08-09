@@ -20,7 +20,7 @@
 
 use gtk::prelude::*;
 use adw::subclass::prelude::*;
-use gtk::{gio, glib};
+use gtk::{gdk, gio, glib};
 
 use std::cell::RefCell;
 
@@ -29,6 +29,7 @@ use crate::engine::{EngineMock, JournalHandle, SyncAction};
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
+const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 
 mod imp {
     use super::*;
@@ -68,8 +69,6 @@ mod imp {
         pub app_header_bar: TemplateChild<adw::HeaderBar>,
         #[template_child]
         pub main_menu_button: TemplateChild<gtk::MenuButton>,
-        #[template_child]
-        pub save_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub back_to_grid_button: TemplateChild<gtk::Button>,
 
@@ -159,6 +158,8 @@ impl PennaFrontendWindow {
     fn setup_callbacks(&self) {
         let imp = self.imp();
 
+        self.setup_editor_css();
+
         imp.connect_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
@@ -172,14 +173,6 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 window.choose_repo_folder();
-            }
-        ));
-
-        imp.save_button.connect_clicked(glib::clone!(
-            #[weak(rename_to = window)]
-            self,
-            move |_| {
-                window.save_current_entry();
             }
         ));
 
@@ -232,6 +225,27 @@ impl PennaFrontendWindow {
 
         self.show_grid_view();
         self.initialize_repository_state();
+    }
+
+    fn setup_editor_css(&self) {
+        let provider = gtk::CssProvider::new();
+        provider.load_from_data(
+            ".immersive-editor, .immersive-editor text {\
+                background-color: transparent;\
+                background-image: none;\
+            }\
+            .immersive-editor {\
+                border-radius: 0;\
+            }",
+        );
+
+        if let Some(display) = gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
     }
 
     fn initialize_repository_state(&self) {
@@ -668,8 +682,12 @@ impl PennaFrontendWindow {
         imp.content_stack.set_visible_child(&*imp.notes_page);
         imp.app_header_bar.set_visible(true);
         imp.header_revealer.set_reveal_child(true);
+        imp.main_page.set_spacing(8);
+        imp.main_page.set_margin_top(MAIN_PAGE_MARGIN_NORMAL);
+        imp.main_page.set_margin_bottom(MAIN_PAGE_MARGIN_NORMAL);
+        imp.main_page.set_margin_start(MAIN_PAGE_MARGIN_NORMAL);
+        imp.main_page.set_margin_end(MAIN_PAGE_MARGIN_NORMAL);
         imp.back_to_grid_button.set_visible(false);
-        imp.save_button.set_visible(false);
     }
 
     fn show_setup_page(&self) {
@@ -680,7 +698,6 @@ impl PennaFrontendWindow {
         imp.app_header_bar.set_visible(true);
         imp.header_revealer.set_reveal_child(true);
         imp.back_to_grid_button.set_visible(false);
-        imp.save_button.set_visible(false);
         imp.current_handle.borrow_mut().take();
         imp.current_entry_id.borrow_mut().take();
     }
@@ -700,8 +717,12 @@ impl PennaFrontendWindow {
         } else {
             imp.header_revealer.set_reveal_child(false);
         }
+        imp.main_page.set_spacing(0);
+        imp.main_page.set_margin_top(0);
+        imp.main_page.set_margin_bottom(0);
+        imp.main_page.set_margin_start(0);
+        imp.main_page.set_margin_end(0);
         imp.back_to_grid_button.set_visible(true);
-        imp.save_button.set_visible(true);
     }
 
     fn update_editor_header_reveal(&self, pointer_y: f64) {
