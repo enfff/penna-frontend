@@ -11,5 +11,10 @@
 			<summary>Enable confetti mode</summary>
 			<description>Mock preference used for prototype preferences window.</description>
 		</key>
+		<key name="editor-viewer-mode" type="b">
+			<default>false</default>
+			<summary>Open editor in viewer mode</summary>
+			<description>Whether notes should be shown read-only instead of editable.</description>
+		</key>
 	</schema>
 </schemalist>

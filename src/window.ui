@@ -26,6 +26,12 @@
                   </object>
                 </child>
                 <child type="end">
+                  <object class="GtkButton" id="viewer_mode_button">
+                    <property name="icon-name">view-reveal-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Turn on viewer mode</property>
+                  </object>
+                </child>
+                <child type="end">
                   <object class="GtkMenuButton" id="main_menu_button">
                     <property name="primary">True</property>
                     <property name="icon-name">open-menu-symbolic</property>

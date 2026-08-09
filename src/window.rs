@@ -29,6 +29,7 @@ use crate::engine::{EngineMock, JournalHandle, SyncAction};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
+const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
@@ -96,6 +97,8 @@ mod imp {
         #[template_child]
         pub app_header_bar: TemplateChild<adw::HeaderBar>,
         #[template_child]
+        pub viewer_mode_button: TemplateChild<gtk::Button>,
+        #[template_child]
         pub main_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub back_to_grid_button: TemplateChild<gtk::Button>,
@@ -110,6 +113,7 @@ mod imp {
         pub header_visibility_locked: RefCell<bool>,
         pub editor_css_provider: RefCell<Option<gtk::CssProvider>>,
         pub editor_font_size_pt: RefCell<i32>,
+        pub editor_viewer_mode: RefCell<bool>,
     }
 
     impl Default for PennaFrontendWindow {
@@ -130,6 +134,7 @@ mod imp {
                 editor_view: TemplateChild::default(),
                 header_revealer: TemplateChild::default(),
                 app_header_bar: TemplateChild::default(),
+                viewer_mode_button: TemplateChild::default(),
                 main_menu_button: TemplateChild::default(),
                 back_to_grid_button: TemplateChild::default(),
                 engine: RefCell::default(),
@@ -142,6 +147,7 @@ mod imp {
                 header_visibility_locked: RefCell::default(),
                 editor_css_provider: RefCell::default(),
                 editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
+                editor_viewer_mode: RefCell::default(),
             }
         }
     }
@@ -228,6 +234,16 @@ impl PennaFrontendWindow {
         ));
         self.add_action(&zoom_out);
 
+        let toggle_viewer_mode = gio::SimpleAction::new("toggle-viewer-mode", None);
+        toggle_viewer_mode.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.toggle_viewer_mode();
+            }
+        ));
+        self.add_action(&toggle_viewer_mode);
+
         let change_repo = gio::SimpleAction::new("change-repo", None);
         change_repo.connect_activate(glib::clone!(
             #[weak(rename_to = window)]
@@ -266,6 +282,14 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 window.show_grid_view();
+            }
+        ));
+
+        imp.viewer_mode_button.connect_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                window.toggle_viewer_mode();
             }
         ));
 
@@ -340,10 +364,54 @@ impl PennaFrontendWindow {
                 glib::Propagation::Stop
             }
         ));
-        imp.editor_view.add_controller(scroll);
+        imp.editor_page.add_controller(scroll);
 
+        self.load_editor_preferences();
         self.show_grid_view();
         self.initialize_repository_state();
+    }
+
+    fn load_editor_preferences(&self) {
+        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let viewer_mode = settings.boolean(SETTINGS_EDITOR_VIEWER_MODE_KEY);
+        *self.imp().editor_viewer_mode.borrow_mut() = viewer_mode;
+        self.apply_editor_mode();
+    }
+
+    fn toggle_viewer_mode(&self) {
+        let imp = self.imp();
+        let next = !*imp.editor_viewer_mode.borrow();
+        *imp.editor_viewer_mode.borrow_mut() = next;
+
+        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let _ = settings.set_boolean(SETTINGS_EDITOR_VIEWER_MODE_KEY, next);
+
+        self.apply_editor_mode();
+    }
+
+    fn apply_editor_mode(&self) {
+        let imp = self.imp();
+        let viewer_mode = *imp.editor_viewer_mode.borrow();
+
+        imp.editor_view.set_editable(!viewer_mode);
+        imp.editor_view.set_cursor_visible(!viewer_mode);
+        imp.editor_view.set_can_focus(true);
+        imp.editor_view.set_can_target(!viewer_mode);
+        imp.editor_view.set_cursor_from_name(if viewer_mode {
+            Some("default")
+        } else {
+            None
+        });
+        imp.viewer_mode_button.set_icon_name(if viewer_mode {
+            "view-conceal-symbolic"
+        } else {
+            "view-reveal-symbolic"
+        });
+        imp.viewer_mode_button.set_tooltip_text(Some(if viewer_mode {
+            "Turn off viewer mode"
+        } else {
+            "Turn on viewer mode"
+        }));
     }
 
     fn setup_editor_css(&self) {
@@ -652,6 +720,7 @@ impl PennaFrontendWindow {
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
         imp.editor_view.buffer().set_text(&content);
+        self.apply_editor_mode();
         self.apply_markdown_styling();
         self.show_editor_view();
     }
