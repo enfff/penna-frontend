@@ -22,14 +22,6 @@
                     <property name="tooltip-text" translatable="yes">Back to notes grid</property>
                   </object>
                 </child>
-                <child type="start">
-                  <object class="GtkLabel">
-                    <property name="label" translatable="yes">Penna Journal</property>
-                    <style>
-                      <class name="title-4"/>
-                    </style>
-                  </object>
-                </child>
                 <child type="end">
                   <object class="GtkButton" id="save_button">
                     <property name="label" translatable="yes">Save</property>
@@ -37,7 +29,7 @@
                   </object>
                 </child>
                 <child type="end">
-                  <object class="GtkMenuButton">
+                  <object class="GtkMenuButton" id="main_menu_button">
                     <property name="primary">True</property>
                     <property name="icon-name">open-menu-symbolic</property>
                     <property name="tooltip-text" translatable="yes">Main Menu</property>
@@ -120,6 +112,7 @@
                 <property name="margin-end">12</property>
                 <child>
                   <object class="GtkLabel" id="sync_status_label">
+                    <property name="visible">False</property>
                     <property name="wrap">True</property>
                     <property name="max-width-chars">100</property>
                     <property name="xalign">0.0</property>
@@ -164,15 +157,6 @@
                       <object class="GtkBox" id="editor_page">
                         <property name="orientation">vertical</property>
                         <property name="spacing">8</property>
-                        <child>
-                          <object class="GtkLabel" id="entry_title_label">
-                            <property name="xalign">0.0</property>
-                            <property name="label" translatable="yes">No note selected</property>
-                            <style>
-                              <class name="title-3"/>
-                            </style>
-                          </object>
-                        </child>
                         <child>
                           <object class="GtkScrolledWindow">
                             <property name="vexpand">True</property>

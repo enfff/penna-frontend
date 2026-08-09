@@ -61,13 +61,13 @@ mod imp {
         #[template_child]
         pub notes_flowbox: TemplateChild<gtk::FlowBox>,
         #[template_child]
-        pub entry_title_label: TemplateChild<gtk::Label>,
-        #[template_child]
         pub editor_view: TemplateChild<gtk::TextView>,
         #[template_child]
         pub header_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
         pub app_header_bar: TemplateChild<adw::HeaderBar>,
+        #[template_child]
+        pub main_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub save_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -80,6 +80,7 @@ mod imp {
         pub refresh_source: RefCell<Option<glib::SourceId>>,
         pub last_entries_fingerprint: RefCell<Option<u64>>,
         pub in_editor_view: RefCell<bool>,
+        pub header_visibility_locked: RefCell<bool>,
     }
 
     #[glib::object_subclass]
@@ -190,6 +191,25 @@ impl PennaFrontendWindow {
             }
         ));
 
+        imp.main_menu_button.connect_notify_local(
+            Some("active"),
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |button, _| {
+                    let imp = window.imp();
+                    let active = button.is_active();
+                    *imp.header_visibility_locked.borrow_mut() = active;
+
+                    if active {
+                        imp.header_revealer.set_reveal_child(true);
+                    } else if *imp.in_editor_view.borrow() {
+                        imp.header_revealer.set_reveal_child(false);
+                    }
+                }
+            ),
+        );
+
         let motion = gtk::EventControllerMotion::new();
         motion.connect_motion(glib::clone!(
             #[weak(rename_to = window)]
@@ -203,7 +223,7 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 let imp = window.imp();
-                if *imp.in_editor_view.borrow() {
+                if *imp.in_editor_view.borrow() && !*imp.header_visibility_locked.borrow() {
                     imp.header_revealer.set_reveal_child(false);
                 }
             }
@@ -362,8 +382,8 @@ impl PennaFrontendWindow {
 
         if let Some(status) = imp.engine.borrow().journal_status(handle) {
             let details = format!(
-                "Path: {} | branch: {} | head: {} | dirty: {} | entries: {}",
-                status.repo_path, status.branch, status.head_commit, status.dirty, status.entry_count
+                "Branch: {} | head: {} | dirty: {} | entries: {}",
+                status.branch, status.head_commit, status.dirty, status.entry_count
             );
             imp.sync_status_label.set_label(&details);
         }
@@ -381,7 +401,6 @@ impl PennaFrontendWindow {
         };
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
-        imp.entry_title_label.set_label(entry_id);
         imp.editor_view.buffer().set_text(&content);
         self.show_editor_view();
     }
@@ -676,14 +695,18 @@ impl PennaFrontendWindow {
         *imp.in_editor_view.borrow_mut() = true;
         imp.content_stack.set_visible_child(&*imp.editor_page);
         imp.app_header_bar.set_visible(true);
-        imp.header_revealer.set_reveal_child(false);
+        if *imp.header_visibility_locked.borrow() {
+            imp.header_revealer.set_reveal_child(true);
+        } else {
+            imp.header_revealer.set_reveal_child(false);
+        }
         imp.back_to_grid_button.set_visible(true);
         imp.save_button.set_visible(true);
     }
 
     fn update_editor_header_reveal(&self, pointer_y: f64) {
         let imp = self.imp();
-        if *imp.in_editor_view.borrow() {
+        if *imp.in_editor_view.borrow() && !*imp.header_visibility_locked.borrow() {
             imp.header_revealer
                 .set_reveal_child(pointer_y <= HEADER_REVEAL_HOVER_Y);
         }
