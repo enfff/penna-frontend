@@ -24,6 +24,7 @@ use gtk::{gdk, gio, glib};
 use gtk::pango;
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use crate::engine::{EngineMock, JournalHandle, SyncAction};
 
@@ -114,6 +115,8 @@ mod imp {
         pub current_entry_id: RefCell<Option<String>>,
         pub entries_monitor: RefCell<Option<gio::FileMonitor>>,
         pub refresh_source: RefCell<Option<glib::SourceId>>,
+        pub cursor_follow_source: RefCell<Option<glib::SourceId>>,
+        pub cursor_follow_late_source: RefCell<Option<glib::SourceId>>,
         pub last_entries_fingerprint: RefCell<Option<u64>>,
         pub in_editor_view: RefCell<bool>,
         pub in_notes_grid_view: RefCell<bool>,
@@ -151,6 +154,8 @@ mod imp {
                 current_entry_id: RefCell::default(),
                 entries_monitor: RefCell::default(),
                 refresh_source: RefCell::default(),
+                cursor_follow_source: RefCell::default(),
+                cursor_follow_late_source: RefCell::default(),
                 last_entries_fingerprint: RefCell::default(),
                 in_editor_view: RefCell::default(),
                 in_notes_grid_view: RefCell::default(),
@@ -447,25 +452,20 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 window.apply_markdown_styling();
+                window.queue_follow_editor_cursor();
             }
         ));
 
         imp.editor_view.buffer().connect_mark_set(glib::clone!(
             #[weak(rename_to = window)]
             self,
-            move |buffer, iter, mark| {
+            move |buffer, _, mark| {
                 let insert_mark = buffer.get_insert();
                 if mark != &insert_mark {
                     return;
                 }
 
-                let imp = window.imp();
-                if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
-                    return;
-                }
-
-                let mut iter = *iter;
-                imp.editor_view.scroll_to_iter(&mut iter, 0.2, false, 0.0, 0.9);
+                window.queue_follow_editor_cursor();
             }
         ));
 
@@ -555,10 +555,8 @@ impl PennaFrontendWindow {
         ));
         self.add_controller(motion);
 
-        let scroll = gtk::EventControllerScroll::new(
-            gtk::EventControllerScrollFlags::VERTICAL
-                | gtk::EventControllerScrollFlags::DISCRETE,
-        );
+        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
         scroll.connect_scroll(glib::clone!(
             #[weak(rename_to = window)]
             self,
@@ -578,7 +576,7 @@ impl PennaFrontendWindow {
                 glib::Propagation::Stop
             }
         ));
-        imp.editor_page.add_controller(scroll);
+        imp.editor_view.add_controller(scroll);
 
         let key_controller = gtk::EventControllerKey::new();
         key_controller.connect_key_pressed(glib::clone!(
@@ -1348,87 +1346,90 @@ impl PennaFrontendWindow {
         out
     }
 
-    fn note_buttons_with_positions(&self) -> Vec<(gtk::Button, i32, i32)> {
-        let imp = self.imp();
-        let mut out = Vec::new();
-        let mut child = imp.notes_flowbox.first_child();
-
-        while let Some(flow_child) = child {
-            let alloc = flow_child.allocation();
-            if let Some(inner) = flow_child.first_child() {
-                if let Ok(button) = inner.downcast::<gtk::Button>() {
-                    let center_x = alloc.x() + alloc.width() / 2;
-                    let center_y = alloc.y() + alloc.height() / 2;
-                    out.push((button, center_x, center_y));
-                }
-            }
-            child = flow_child.next_sibling();
-        }
-
-        out
-    }
-
     fn focused_note_button(&self) -> Option<gtk::Button> {
         self.note_buttons().into_iter().find(|button| button.has_focus())
     }
 
+    fn notes_grid_column_count(&self, total_buttons: usize, buttons: &[gtk::Button]) -> usize {
+        if total_buttons <= 1 {
+            return 1;
+        }
+
+        let imp = self.imp();
+        let flowbox_width = imp.notes_flowbox.width();
+        let column_spacing = i32::try_from(imp.notes_flowbox.column_spacing()).unwrap_or(i32::MAX);
+        let max_per_line = imp.notes_flowbox.max_children_per_line().max(1) as usize;
+        let sample_width = buttons.first().map(|b| b.width()).unwrap_or(0);
+
+        if flowbox_width <= 0 || sample_width <= 0 {
+            return max_per_line.min(total_buttons).max(1);
+        }
+
+        let slot = sample_width + column_spacing;
+        if slot <= 0 {
+            return max_per_line.min(total_buttons).max(1);
+        }
+
+        let computed = ((flowbox_width + column_spacing) / slot).max(1) as usize;
+        computed.min(max_per_line).min(total_buttons).max(1)
+    }
+
     fn move_note_focus(&self, direction: &str) -> bool {
-        let buttons = self.note_buttons_with_positions();
+        let buttons = self.note_buttons();
         if buttons.is_empty() {
             return false;
         }
 
         let current = buttons
             .iter()
-            .position(|(button, _, _)| button.has_focus())
+            .position(|button| button.has_focus())
             .unwrap_or(0);
+        let cols = self.notes_grid_column_count(buttons.len(), &buttons);
+        let rows = buttons.len().div_ceil(cols);
+        let current_row = current / cols;
+        let current_col = current % cols;
 
-        let (_, current_x, current_y) = &buttons[current];
-
-        let mut best: Option<(usize, i32, i32)> = None;
-
-        for (idx, (_, x, y)) in buttons.iter().enumerate() {
-            if idx == current {
-                continue;
+        let target = match direction {
+            "left" => {
+                if current_col == 0 {
+                    None
+                } else {
+                    Some(current - 1)
+                }
             }
-
-            let primary_delta = match direction {
-                "left" if *x < *current_x => *current_x - *x,
-                "right" if *x > *current_x => *x - *current_x,
-                "up" if *y < *current_y => *current_y - *y,
-                "down" if *y > *current_y => *y - *current_y,
-                _ => continue,
-            };
-
-            let secondary_delta = match direction {
-                "left" | "right" => (*y - *current_y).abs(),
-                "up" | "down" => (*x - *current_x).abs(),
-                _ => 0,
-            };
-
-            match best {
-                None => best = Some((idx, primary_delta, secondary_delta)),
-                Some((_, best_primary, best_secondary)) => {
-                    if primary_delta < best_primary
-                        || (primary_delta == best_primary && secondary_delta < best_secondary)
-                    {
-                        best = Some((idx, primary_delta, secondary_delta));
+            "right" => {
+                let next = current + 1;
+                if next < buttons.len() && (next / cols) == current_row {
+                    Some(next)
+                } else {
+                    None
+                }
+            }
+            "up" => {
+                if current_row == 0 {
+                    None
+                } else {
+                    Some(current - cols)
+                }
+            }
+            "down" => {
+                if current_row + 1 >= rows {
+                    None
+                } else {
+                    let next = current + cols;
+                    if next < buttons.len() {
+                        Some(next)
+                    } else {
+                        // Last row may be short: land on its last item.
+                        Some(buttons.len() - 1)
                     }
                 }
             }
-        }
+            _ => None,
+        };
 
-        if let Some((target_idx, _, _)) = best {
-            let (button, _, _) = &buttons[target_idx];
-            button.grab_focus();
-            return true;
-        }
-
-        // Keep left/right ergonomic at row edges by falling back to linear traversal.
-        if matches!(direction, "left" | "right") {
-            let delta = if direction == "left" { -1 } else { 1 };
-            let target = (current as i32 + delta).clamp(0, buttons.len() as i32 - 1) as usize;
-            if let Some((button, _, _)) = buttons.get(target) {
+        if let Some(target_idx) = target {
+            if let Some(button) = buttons.get(target_idx) {
                 button.grab_focus();
                 return true;
             }
@@ -1457,6 +1458,64 @@ impl PennaFrontendWindow {
             && !*imp.in_editor_view.borrow()
             && !imp.notes_search_entry.text().trim().is_empty();
         imp.notes_search_revealer.set_reveal_child(reveal);
+    }
+
+    fn follow_editor_cursor_now(&self) {
+        let imp = self.imp();
+        if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        let insert_mark = buffer.get_insert();
+        let mut iter = buffer.iter_at_mark(&insert_mark);
+
+        imp.editor_view.scroll_mark_onscreen(&insert_mark);
+        imp.editor_view
+            .scroll_to_mark(&insert_mark, 0.0, true, 0.0, 0.97);
+        imp.editor_view
+            .scroll_to_iter(&mut iter, 0.0, true, 0.0, 0.97);
+    }
+
+    fn queue_follow_editor_cursor(&self) {
+        let imp = self.imp();
+        if imp.cursor_follow_source.borrow().is_some() {
+            return;
+        }
+
+        let source_id = glib::timeout_add_local(
+            Duration::from_millis(16),
+            glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[upgrade_or]
+            glib::ControlFlow::Break,
+            move || {
+                window.imp().cursor_follow_source.borrow_mut().take();
+                window.follow_editor_cursor_now();
+                glib::ControlFlow::Break
+            }
+        ));
+
+        *imp.cursor_follow_source.borrow_mut() = Some(source_id);
+
+        if imp.cursor_follow_late_source.borrow().is_none() {
+            let late_source = glib::timeout_add_local(
+                Duration::from_millis(64),
+                glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                #[upgrade_or]
+                glib::ControlFlow::Break,
+                move || {
+                    window.imp().cursor_follow_late_source.borrow_mut().take();
+                    window.follow_editor_cursor_now();
+                    glib::ControlFlow::Break
+                }
+            ));
+
+            *imp.cursor_follow_late_source.borrow_mut() = Some(late_source);
+        }
     }
 
     fn open_entry(&self, entry_id: &str) {
@@ -1624,6 +1683,12 @@ impl PennaFrontendWindow {
 
         let imp = self.imp();
         if let Some(source) = imp.refresh_source.borrow_mut().take() {
+            source.remove();
+        }
+        if let Some(source) = imp.cursor_follow_source.borrow_mut().take() {
+            source.remove();
+        }
+        if let Some(source) = imp.cursor_follow_late_source.borrow_mut().take() {
             source.remove();
         }
         imp.last_entries_fingerprint.borrow_mut().take();
@@ -2074,6 +2139,7 @@ impl PennaFrontendWindow {
         imp.main_page.set_margin_end(0);
         imp.back_to_grid_button.set_visible(true);
         self.update_notes_search_reveal();
+        self.queue_follow_editor_cursor();
     }
 
     fn update_editor_header_reveal(&self, pointer_y: f64) {
