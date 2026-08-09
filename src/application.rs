@@ -49,6 +49,7 @@ mod imp {
             obj.setup_gactions();
             obj.set_accels_for_action("app.quit", &["<control>q"]);
             obj.set_accels_for_action("win.save", &["<control>s"]);
+            obj.set_accels_for_action("win.back-to-grid", &["Escape"]);
         }
     }
 
@@ -110,13 +111,7 @@ impl PennaFrontendApplication {
         let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let confetti_active = settings.boolean(SETTINGS_CONFETTI_KEY);
 
-        let prefs = adw::PreferencesWindow::builder()
-            .title("Preferences")
-            .modal(true)
-            .transient_for(&window)
-            .default_width(460)
-            .default_height(520)
-            .build();
+        let prefs = adw::PreferencesDialog::new();
 
         let page = adw::PreferencesPage::new();
         let group = adw::PreferencesGroup::builder()
@@ -136,7 +131,7 @@ impl PennaFrontendApplication {
         group.add(&mock_row);
         page.add(&group);
         prefs.add(&page);
-        prefs.present();
+        prefs.present(Some(&window));
     }
 
     fn show_about(&self) {

@@ -28,6 +28,7 @@ use crate::engine::{EngineMock, JournalHandle, SyncAction};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
+const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 
 mod imp {
     use super::*;
@@ -64,6 +65,10 @@ mod imp {
         #[template_child]
         pub editor_view: TemplateChild<gtk::TextView>,
         #[template_child]
+        pub header_revealer: TemplateChild<gtk::Revealer>,
+        #[template_child]
+        pub app_header_bar: TemplateChild<adw::HeaderBar>,
+        #[template_child]
         pub save_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub back_to_grid_button: TemplateChild<gtk::Button>,
@@ -74,6 +79,7 @@ mod imp {
         pub entries_monitor: RefCell<Option<gio::FileMonitor>>,
         pub refresh_source: RefCell<Option<glib::SourceId>>,
         pub last_entries_fingerprint: RefCell<Option<u64>>,
+        pub in_editor_view: RefCell<bool>,
     }
 
     #[glib::object_subclass]
@@ -128,6 +134,16 @@ impl PennaFrontendWindow {
         ));
         self.add_action(&save);
 
+        let back_to_grid = gio::SimpleAction::new("back-to-grid", None);
+        back_to_grid.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.show_grid_view();
+            }
+        ));
+        self.add_action(&back_to_grid);
+
         let change_repo = gio::SimpleAction::new("change-repo", None);
         change_repo.connect_activate(glib::clone!(
             #[weak(rename_to = window)]
@@ -173,6 +189,26 @@ impl PennaFrontendWindow {
                 window.show_grid_view();
             }
         ));
+
+        let motion = gtk::EventControllerMotion::new();
+        motion.connect_motion(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _, y| {
+                window.update_editor_header_reveal(y);
+            }
+        ));
+        motion.connect_leave(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                let imp = window.imp();
+                if *imp.in_editor_view.borrow() {
+                    imp.header_revealer.set_reveal_child(false);
+                }
+            }
+        ));
+        self.add_controller(motion);
 
         self.show_grid_view();
         self.initialize_repository_state();
@@ -609,15 +645,21 @@ impl PennaFrontendWindow {
 
     fn show_grid_view(&self) {
         let imp = self.imp();
+        *imp.in_editor_view.borrow_mut() = false;
         imp.content_stack.set_visible_child(&*imp.notes_page);
+        imp.app_header_bar.set_visible(true);
+        imp.header_revealer.set_reveal_child(true);
         imp.back_to_grid_button.set_visible(false);
         imp.save_button.set_visible(false);
     }
 
     fn show_setup_page(&self) {
         let imp = self.imp();
+        *imp.in_editor_view.borrow_mut() = false;
         self.stop_repo_watchers();
         imp.app_stack.set_visible_child(&*imp.setup_page);
+        imp.app_header_bar.set_visible(true);
+        imp.header_revealer.set_reveal_child(true);
         imp.back_to_grid_button.set_visible(false);
         imp.save_button.set_visible(false);
         imp.current_handle.borrow_mut().take();
@@ -631,8 +673,19 @@ impl PennaFrontendWindow {
 
     fn show_editor_view(&self) {
         let imp = self.imp();
+        *imp.in_editor_view.borrow_mut() = true;
         imp.content_stack.set_visible_child(&*imp.editor_page);
+        imp.app_header_bar.set_visible(true);
+        imp.header_revealer.set_reveal_child(false);
         imp.back_to_grid_button.set_visible(true);
         imp.save_button.set_visible(true);
+    }
+
+    fn update_editor_header_reveal(&self, pointer_y: f64) {
+        let imp = self.imp();
+        if *imp.in_editor_view.borrow() {
+            imp.header_revealer
+                .set_reveal_child(pointer_y <= HEADER_REVEAL_HOVER_Y);
+        }
     }
 }
