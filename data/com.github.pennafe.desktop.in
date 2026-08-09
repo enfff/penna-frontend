@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Penna-frontend
+Exec=penna-frontend
+Icon=com.github.pennafe
+Terminal=false
+Type=Application
+Categories=Utility;
+Keywords=GTK;
+StartupNotify=true
+DBusActivatable=true

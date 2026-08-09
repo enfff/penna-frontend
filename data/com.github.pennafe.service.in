@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=com.github.pennafe
+Exec=@bindir@/penna-frontend --gapplication-service

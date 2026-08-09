@@ -1,0 +1,6 @@
+# List of source files containing translatable strings.
+# Please keep this file sorted alphabetically.
+data/com.github.pennafe.desktop.in
+data/com.github.pennafe.metainfo.xml.in
+data/com.github.pennafe.gschema.xml
+src/window.ui

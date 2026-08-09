@@ -1,0 +1,19 @@
+# Rust build output
+/target/
+
+# Meson / GNOME Builder build directories
+/_build/
+/build/
+
+# Flatpak Builder cache/output
+/.flatpak-builder/
+
+# Editor/OS temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Local environment files
+.env
+.env.*
