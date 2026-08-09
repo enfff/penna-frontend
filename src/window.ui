@@ -9,38 +9,44 @@
     <property name="content">
       <object class="AdwToolbarView">
         <child type="top">
-          <object class="GtkRevealer" id="header_revealer">
-            <property name="transition-type">slide-down</property>
-            <property name="transition-duration">220</property>
-            <property name="reveal-child">True</property>
-            <property name="child">
-              <object class="AdwHeaderBar" id="app_header_bar">
-                <style>
-                  <class name="flat"/>
-                </style>
-                <child type="start">
-                  <object class="GtkButton" id="back_to_grid_button">
-                    <property name="visible">False</property>
-                    <property name="icon-name">go-previous-symbolic</property>
-                    <property name="tooltip-text" translatable="yes">Back to notes grid</property>
+          <object class="GtkBox">
+            <property name="height-request">48</property>
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="GtkRevealer" id="header_revealer">
+                <property name="transition-type">slide-down</property>
+                <property name="transition-duration">220</property>
+                <property name="reveal-child">True</property>
+                <property name="child">
+                  <object class="AdwHeaderBar" id="app_header_bar">
+                    <style>
+                      <class name="flat"/>
+                    </style>
+                    <child type="start">
+                      <object class="GtkButton" id="back_to_grid_button">
+                        <property name="visible">False</property>
+                        <property name="icon-name">go-previous-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Back to notes grid</property>
+                      </object>
+                    </child>
+                    <child type="end">
+                      <object class="GtkButton" id="viewer_mode_button">
+                        <property name="icon-name">view-reveal-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Turn on viewer mode</property>
+                      </object>
+                    </child>
+                    <child type="end">
+                      <object class="GtkMenuButton" id="main_menu_button">
+                        <property name="primary">True</property>
+                        <property name="icon-name">open-menu-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Main Menu</property>
+                        <property name="menu-model">primary_menu</property>
+                      </object>
+                    </child>
                   </object>
-                </child>
-                <child type="end">
-                  <object class="GtkButton" id="viewer_mode_button">
-                    <property name="icon-name">view-reveal-symbolic</property>
-                    <property name="tooltip-text" translatable="yes">Turn on viewer mode</property>
-                  </object>
-                </child>
-                <child type="end">
-                  <object class="GtkMenuButton" id="main_menu_button">
-                    <property name="primary">True</property>
-                    <property name="icon-name">open-menu-symbolic</property>
-                    <property name="tooltip-text" translatable="yes">Main Menu</property>
-                    <property name="menu-model">primary_menu</property>
-                  </object>
-                </child>
+                </property>
               </object>
-            </property>
+            </child>
           </object>
         </child>
         <property name="content">
@@ -168,7 +174,7 @@
                               <object class="AdwClamp">
                                 <property name="maximum-size">900</property>
                                 <property name="tightening-threshold">560</property>
-                                <property name="margin-top">20</property>
+                                <property name="margin-top">32</property>
                                 <property name="margin-bottom">20</property>
                                 <property name="margin-start">20</property>
                                 <property name="margin-end">20</property>
