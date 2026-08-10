@@ -1070,36 +1070,31 @@ impl PennaFrontendWindow {
             .name(TAG_HEADING_1)
             .weight(700)
             .scale(1.8)
-            .pixels_above_lines(12)
-            .pixels_below_lines(6)
+            .line_height(1.8)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_HEADING_2)
             .weight(700)
             .scale(1.5)
-            .pixels_above_lines(10)
-            .pixels_below_lines(5)
+            .line_height(1.6)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_HEADING_3)
             .weight(700)
             .scale(1.25)
-            .pixels_above_lines(8)
-            .pixels_below_lines(4)
+            .line_height(1.5)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_HEADING_4)
             .weight(700)
             .scale(1.1)
-            .pixels_above_lines(6)
-            .pixels_below_lines(3)
+            .line_height(1.5)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_BLOCKQUOTE)
             .style(pango::Style::Italic)
             .left_margin(18)
-            .pixels_above_lines(4)
-            .pixels_below_lines(4)
+            .line_height(1.4)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_CODE)
@@ -1110,8 +1105,7 @@ impl PennaFrontendWindow {
             .family("monospace")
             .left_margin(18)
             .right_margin(18)
-            .pixels_above_lines(6)
-            .pixels_below_lines(6)
+            .line_height(1.6)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_BOLD)
@@ -1132,14 +1126,13 @@ impl PennaFrontendWindow {
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_LIST_MARKER)
-            .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
+            .foreground_rgba(&gdk::RGBA::new(0.35, 0.35, 0.35, 1.0))
             .weight(500)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_LIST_ITEM)
             .left_margin(18)
-            .pixels_above_lines(2)
-            .pixels_below_lines(2)
+            .line_height(1.2)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_LINK)
@@ -1154,8 +1147,7 @@ impl PennaFrontendWindow {
             .scale(0.85)
             .weight(700)
             .justification(gtk::Justification::Center)
-            .pixels_above_lines(6)
-            .pixels_below_lines(6)
+            .line_height(0.6)
             .build());
     }
 
