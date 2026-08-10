@@ -47,6 +47,7 @@ mod imp {
             self.parent_constructed();
             let obj = self.obj();
             obj.setup_gactions();
+            obj.set_accels_for_action("app.shortcuts", &["F1"]);
             obj.set_accels_for_action("app.quit", &["<control>q"]);
             obj.set_accels_for_action("win.back-to-grid", &["Escape"]);
             obj.set_accels_for_action("win.toggle-viewer-mode", &["<control>d"]);
@@ -107,13 +108,16 @@ impl PennaFrontendApplication {
         let preferences_action = gio::ActionEntry::builder("preferences")
             .activate(move |app: &Self, _, _| app.show_preferences())
             .build();
+        let shortcuts_action = gio::ActionEntry::builder("shortcuts")
+            .activate(move |app: &Self, _, _| app.show_shortcuts())
+            .build();
         let quit_action = gio::ActionEntry::builder("quit")
             .activate(move |app: &Self, _, _| app.quit())
             .build();
         let about_action = gio::ActionEntry::builder("about")
             .activate(move |app: &Self, _, _| app.show_about())
             .build();
-        self.add_action_entries([preferences_action, quit_action, about_action]);
+        self.add_action_entries([preferences_action, shortcuts_action, quit_action, about_action]);
     }
 
     fn show_preferences(&self) {
@@ -161,5 +165,19 @@ impl PennaFrontendApplication {
             .build();
 
         about.present(Some(&window));
+    }
+
+    fn show_shortcuts(&self) {
+        let Some(window) = self.active_window() else {
+            return;
+        };
+
+        let builder = gtk::Builder::from_resource("/com/github/pennafe/shortcuts-dialog.ui");
+        let Some(shortcuts) = builder.object::<gtk::ShortcutsWindow>("shortcuts_window") else {
+            return;
+        };
+
+        shortcuts.set_transient_for(Some(&window));
+        shortcuts.present();
     }
 }
