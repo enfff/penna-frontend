@@ -28,6 +28,8 @@ use crate::PennaFrontendWindow;
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
+const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
+const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
 
 mod imp {
     use super::*;
@@ -127,6 +129,8 @@ impl PennaFrontendApplication {
 
         let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let confetti_active = settings.boolean(SETTINGS_CONFETTI_KEY);
+        let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
+        let custom_font = settings.string(SETTINGS_EDITOR_FONT_CUSTOM_KEY).to_string();
 
         let prefs = adw::PreferencesDialog::new();
 
@@ -146,7 +150,191 @@ impl PennaFrontendApplication {
         });
 
         group.add(&mock_row);
+
+        let font_group = adw::PreferencesGroup::builder()
+            .title("Editor")
+            .build();
+
+        let options_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        options_box.set_hexpand(true);
+        options_box.set_homogeneous(true);
+
+        let sans_radio = gtk::CheckButton::with_label("Sans");
+        sans_radio.set_halign(gtk::Align::Center);
+        let serif_radio = gtk::CheckButton::with_label("Serif");
+        serif_radio.set_group(Some(&sans_radio));
+        serif_radio.set_halign(gtk::Align::Center);
+        let custom_radio = gtk::CheckButton::with_label("Custom");
+        custom_radio.set_group(Some(&sans_radio));
+        custom_radio.set_halign(gtk::Align::Center);
+
+        let sans_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        sans_card.set_margin_top(14);
+        sans_card.set_margin_bottom(14);
+        sans_card.set_margin_start(14);
+        sans_card.set_margin_end(14);
+        let sans_preview = gtk::Label::new(None);
+        sans_preview.set_use_markup(true);
+        sans_preview.set_markup("<span font_desc=\"Adwaita Sans Bold 42\">Ab</span>");
+        sans_preview.set_justify(gtk::Justification::Center);
+        sans_preview.set_halign(gtk::Align::Center);
+        sans_card.append(&sans_preview);
+        let sans_caption = gtk::Label::new(Some("Sans (Adwaita Sans)"));
+        sans_caption.add_css_class("dim-label");
+        sans_caption.set_halign(gtk::Align::Center);
+        sans_card.append(&sans_caption);
+        sans_card.append(&sans_radio);
+        let sans_frame = gtk::Frame::new(None);
+        sans_frame.add_css_class("card");
+        sans_frame.set_size_request(120, 100);
+        sans_frame.set_child(Some(&sans_card));
+
+        let serif_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        serif_card.set_margin_top(14);
+        serif_card.set_margin_bottom(14);
+        serif_card.set_margin_start(14);
+        serif_card.set_margin_end(14);
+        let serif_preview = gtk::Label::new(None);
+        serif_preview.set_use_markup(true);
+        serif_preview.set_markup("<span font_desc=\"Noto Serif Bold 42\">Ab</span>");
+        serif_preview.set_justify(gtk::Justification::Center);
+        serif_preview.set_halign(gtk::Align::Center);
+        serif_card.append(&serif_preview);
+        let serif_caption = gtk::Label::new(Some("Serif (Noto Serif)"));
+        serif_caption.add_css_class("dim-label");
+        serif_caption.set_halign(gtk::Align::Center);
+        serif_card.append(&serif_caption);
+        serif_card.append(&serif_radio);
+        let serif_frame = gtk::Frame::new(None);
+        serif_frame.add_css_class("card");
+        serif_frame.set_size_request(120, 100);
+        serif_frame.set_child(Some(&serif_card));
+
+        let custom_card = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        custom_card.set_margin_top(14);
+        custom_card.set_margin_bottom(14);
+        custom_card.set_margin_start(14);
+        custom_card.set_margin_end(14);
+        let custom_preview = gtk::Label::new(None);
+        custom_preview.set_use_markup(true);
+        let initial_custom_family = custom_font.trim();
+        let initial_custom_family = if initial_custom_family.is_empty() {
+            "Sans"
+        } else {
+            initial_custom_family
+        };
+        let initial_custom_family = glib::markup_escape_text(initial_custom_family);
+        custom_preview.set_markup(&format!("<span font_desc=\"{} Bold 42\">Ab</span>", initial_custom_family));
+        custom_preview.set_justify(gtk::Justification::Center);
+        custom_preview.set_halign(gtk::Align::Center);
+        custom_card.append(&custom_preview);
+        let custom_caption = gtk::Label::new(Some("Custom"));
+        custom_caption.add_css_class("dim-label");
+        custom_caption.set_halign(gtk::Align::Center);
+        custom_card.append(&custom_caption);
+        custom_card.append(&custom_radio);
+        let custom_frame = gtk::Frame::new(None);
+        custom_frame.add_css_class("card");
+        custom_frame.set_size_request(120, 100);
+        custom_frame.set_child(Some(&custom_card));
+
+        match font_preset.as_str() {
+            "custom" => custom_radio.set_active(true),
+            "serif" => serif_radio.set_active(true),
+            _ => sans_radio.set_active(true),
+        }
+
+        options_box.append(&sans_frame);
+        options_box.append(&serif_frame);
+        options_box.append(&custom_frame);
+        font_group.add(&options_box);
+
+        let custom_font_row = adw::EntryRow::builder()
+            .title("Custom font family")
+            .text(&custom_font)
+            .show_apply_button(true)
+            .build();
+        custom_font_row.set_sensitive(custom_radio.is_active());
+        font_group.add(&custom_font_row);
+
+        let settings_for_sans = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let app_for_sans = self.clone();
+        let custom_font_row_for_sans = custom_font_row.clone();
+        sans_radio.connect_toggled(move |radio| {
+            if !radio.is_active() {
+                return;
+            }
+
+            let _ = settings_for_sans.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "sans");
+            custom_font_row_for_sans.set_sensitive(false);
+
+            if let Some(window) = app_for_sans.active_window() {
+                if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                    window.refresh_editor_appearance();
+                }
+            }
+        });
+
+        let settings_for_serif = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let app_for_serif = self.clone();
+        let custom_font_row_for_serif = custom_font_row.clone();
+        serif_radio.connect_toggled(move |radio| {
+            if !radio.is_active() {
+                return;
+            }
+
+            let _ = settings_for_serif.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "serif");
+            custom_font_row_for_serif.set_sensitive(false);
+
+            if let Some(window) = app_for_serif.active_window() {
+                if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                    window.refresh_editor_appearance();
+                }
+            }
+        });
+
+        let settings_for_custom_choice = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let app_for_custom_choice = self.clone();
+        let custom_font_row_for_custom = custom_font_row.clone();
+        custom_radio.connect_toggled(move |radio| {
+            if !radio.is_active() {
+                return;
+            }
+
+            let _ = settings_for_custom_choice.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
+            custom_font_row_for_custom.set_sensitive(true);
+
+            if let Some(window) = app_for_custom_choice.active_window() {
+                if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                    window.refresh_editor_appearance();
+                }
+            }
+        });
+
+        let settings_for_custom = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let app_for_custom = self.clone();
+        let custom_preview_for_entry = custom_preview.clone();
+        custom_font_row.connect_apply(move |row| {
+            let _ = settings_for_custom.set_string(SETTINGS_EDITOR_FONT_CUSTOM_KEY, &row.text());
+
+            let family = row.text();
+            let family = family.trim();
+            let family = if family.is_empty() { "Sans" } else { family };
+            let family = glib::markup_escape_text(family);
+            custom_preview_for_entry.set_markup(&format!(
+                "<span font_desc=\"{} Bold 28\">Ab</span>",
+                family
+            ));
+
+            if let Some(window) = app_for_custom.active_window() {
+                if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                    window.refresh_editor_appearance();
+                }
+            }
+        });
+
         page.add(&group);
+        page.add(&font_group);
         prefs.add(&page);
         prefs.present(Some(&window));
     }

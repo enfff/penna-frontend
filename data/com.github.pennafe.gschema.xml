@@ -16,5 +16,15 @@
 			<summary>Open editor in viewer mode</summary>
 			<description>Whether notes should be shown read-only instead of editable.</description>
 		</key>
+		<key name="editor-font-preset" type="s">
+			<default>'sans'</default>
+			<summary>Editor font preset</summary>
+			<description>Editor font option: sans, serif, or custom.</description>
+		</key>
+		<key name="editor-font-custom" type="s">
+			<default>''</default>
+			<summary>Custom editor font family</summary>
+			<description>Custom font family used when editor font preset is custom.</description>
+		</key>
 	</schema>
 </schemalist>

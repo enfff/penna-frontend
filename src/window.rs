@@ -31,6 +31,8 @@ use crate::engine::{EngineMock, JournalHandle, SyncAction};
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
 const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
+const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
+const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
@@ -206,6 +208,10 @@ impl PennaFrontendWindow {
         glib::Object::builder()
             .property("application", application)
             .build()
+    }
+
+    pub fn refresh_editor_appearance(&self) {
+        self.apply_editor_css();
     }
 
     fn setup_actions(&self) {
@@ -1042,11 +1048,31 @@ impl PennaFrontendWindow {
     fn apply_editor_css(&self) {
         let imp = self.imp();
         let font_size = *imp.editor_font_size_pt.borrow();
+        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
+        let custom_font = settings.string(SETTINGS_EDITOR_FONT_CUSTOM_KEY).to_string();
+
+        let font_family_rule = match font_preset.as_str() {
+            "sans" => "font-family: \"Adwaita Sans\", Sans;".to_string(),
+            "serif" => "font-family: \"Noto Serif\", Serif;".to_string(),
+            "custom" => {
+                let trimmed = custom_font.trim();
+                if trimmed.is_empty() {
+                    "font-family: \"Adwaita Sans\", Sans;".to_string()
+                } else {
+                    let escaped = trimmed.replace('"', "\\\"");
+                    format!("font-family: \"{escaped}\", Sans;")
+                }
+            }
+            _ => "font-family: \"Adwaita Sans\", Sans;".to_string(),
+        };
+
         if let Some(provider) = imp.editor_css_provider.borrow().as_ref() {
             provider.load_from_string(&format!(
                 ".immersive-editor, .immersive-editor text {{\
                     background-color: transparent;\
                     background-image: none;\
+                    {font_family_rule}\
                     font-size: {font_size}pt;\
                 }}\
                 .immersive-editor {{\
@@ -1070,36 +1096,31 @@ impl PennaFrontendWindow {
             .name(TAG_HEADING_1)
             .weight(700)
             .scale(1.8)
-            .pixels_above_lines(0)
-            .pixels_below_lines(24)
+            .line_height(1.8)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_HEADING_2)
             .weight(700)
             .scale(1.5)
-            .pixels_above_lines(0)
-            .pixels_below_lines(20)
+            .line_height(1.6)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_HEADING_3)
             .weight(700)
             .scale(1.25)
-            .pixels_above_lines(0)
-            .pixels_below_lines(16)
+            .line_height(1.4)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_HEADING_4)
             .weight(700)
             .scale(1.1)
-            .pixels_above_lines(0)
-            .pixels_below_lines(12)
+            .line_height(1.4)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_BLOCKQUOTE)
             .style(pango::Style::Italic)
             .left_margin(18)
-            .pixels_above_lines(4)
-            .pixels_below_lines(4)
+            .line_height(1.2)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_CODE)
@@ -1110,8 +1131,7 @@ impl PennaFrontendWindow {
             .family("monospace")
             .left_margin(18)
             .right_margin(18)
-            .pixels_above_lines(6)
-            .pixels_below_lines(6)
+            .line_height(1.2)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_BOLD)
@@ -1138,8 +1158,6 @@ impl PennaFrontendWindow {
         add_tag(&gtk::TextTag::builder()
             .name(TAG_LIST_ITEM)
             .left_margin(18)
-            .pixels_above_lines(2)
-            .pixels_below_lines(2)
             .build());
         add_tag(&gtk::TextTag::builder()
             .name(TAG_LINK)
@@ -1154,8 +1172,6 @@ impl PennaFrontendWindow {
             .scale(0.85)
             .weight(700)
             .justification(gtk::Justification::Center)
-            .pixels_above_lines(6)
-            .pixels_below_lines(6)
             .build());
     }
 
