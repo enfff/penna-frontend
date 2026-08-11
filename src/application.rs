@@ -21,7 +21,8 @@
 use gettextrs::gettext;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
-use gtk::{gio, glib};
+use gtk::{gio, glib, pango};
+use std::rc::Rc;
 
 use crate::config::VERSION;
 use crate::PennaFrontendWindow;
@@ -30,6 +31,9 @@ const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
+const EDITOR_FONT_SIZE_MIN_PT: f64 = 10.0;
+const EDITOR_FONT_SIZE_MAX_PT: f64 = 28.0;
+const EDITOR_FONT_SIZE_DEFAULT_PT: f64 = 14.0;
 
 mod imp {
     use super::*;
@@ -127,6 +131,8 @@ impl PennaFrontendApplication {
             return;
         };
 
+        let app_window = window.clone().downcast::<PennaFrontendWindow>().ok();
+
         let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let confetti_active = settings.boolean(SETTINGS_CONFETTI_KEY);
         let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
@@ -141,7 +147,7 @@ impl PennaFrontendApplication {
 
         let mock_row = adw::SwitchRow::builder()
             .title("Enable confetti mode")
-            .subtitle("Mocked preference for now")
+            // .subtitle("Mocked preference for now")
             .active(confetti_active)
             .build();
 
@@ -154,10 +160,12 @@ impl PennaFrontendApplication {
         let font_group = adw::PreferencesGroup::builder()
             .title("Editor")
             .build();
+        let font_size_group = adw::PreferencesGroup::new();
 
         let options_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         options_box.set_hexpand(true);
         options_box.set_homogeneous(true);
+        options_box.set_margin_top(12);
 
         let sans_radio = gtk::CheckButton::with_label("Sans");
         sans_radio.set_halign(gtk::Align::Center);
@@ -196,11 +204,11 @@ impl PennaFrontendApplication {
         serif_card.set_margin_end(14);
         let serif_preview = gtk::Label::new(None);
         serif_preview.set_use_markup(true);
-        serif_preview.set_markup("<span font_desc=\"Noto Serif Bold 42\">Ab</span>");
+        serif_preview.set_markup("<span font_desc=\"Free Serif Bold 42\">Ab</span>");
         serif_preview.set_justify(gtk::Justification::Center);
         serif_preview.set_halign(gtk::Align::Center);
         serif_card.append(&serif_preview);
-        let serif_caption = gtk::Label::new(Some("Serif (Noto Serif)"));
+        let serif_caption = gtk::Label::new(Some("Serif (Free Serif)"));
         serif_caption.add_css_class("dim-label");
         serif_caption.set_halign(gtk::Align::Center);
         serif_card.append(&serif_caption);
@@ -217,6 +225,10 @@ impl PennaFrontendApplication {
         custom_card.set_margin_end(14);
         let custom_preview = gtk::Label::new(None);
         custom_preview.set_use_markup(true);
+        custom_preview.set_hexpand(true);
+        custom_preview.set_vexpand(true);
+        custom_preview.set_halign(gtk::Align::Center);
+        custom_preview.set_valign(gtk::Align::Center);
         let initial_custom_family = custom_font.trim();
         let initial_custom_family = if initial_custom_family.is_empty() {
             "Sans"
@@ -224,9 +236,11 @@ impl PennaFrontendApplication {
             initial_custom_family
         };
         let initial_custom_family = glib::markup_escape_text(initial_custom_family);
-        custom_preview.set_markup(&format!("<span font_desc=\"{} Bold 42\">Ab</span>", initial_custom_family));
+        custom_preview.set_markup(&format!(
+            "<span font_family=\"{}\" size=\"xx-large\" weight=\"bold\">Ab</span>",
+            initial_custom_family
+        ));
         custom_preview.set_justify(gtk::Justification::Center);
-        custom_preview.set_halign(gtk::Align::Center);
         custom_card.append(&custom_preview);
         let custom_caption = gtk::Label::new(Some("Custom"));
         custom_caption.add_css_class("dim-label");
@@ -241,32 +255,68 @@ impl PennaFrontendApplication {
         match font_preset.as_str() {
             "custom" => custom_radio.set_active(true),
             "serif" => serif_radio.set_active(true),
-            _ => sans_radio.set_active(true),
+            _ => {
+                if !custom_font.trim().is_empty() {
+                    custom_radio.set_active(true);
+                } else {
+                    sans_radio.set_active(true);
+                }
+            }
         }
+
+        let family_dialog = gtk::FontDialog::builder()
+            .title("Select a Font Family")
+            .modal(true)
+            .build();
+        let family_button = gtk::FontDialogButton::new(Some(family_dialog.clone()));
+        family_button.set_use_font(true);
+        family_button.set_use_size(false);
+        family_button.set_level(gtk::FontLevel::Family);
+        family_button.set_visible(false);
+
+        let initial_family = if custom_font.trim().is_empty() {
+            "Sans"
+        } else {
+            custom_font.trim()
+        };
+        let initial_desc = {
+            let mut desc = pango::FontDescription::new();
+            desc.set_family(initial_family);
+            desc
+        };
+        family_button.set_font_desc(&initial_desc);
+
+        custom_card.append(&family_button);
+
+        let initial_font_size = app_window
+            .as_ref()
+            .map(|win| win.editor_font_size_pt() as f64)
+            .unwrap_or(EDITOR_FONT_SIZE_DEFAULT_PT);
+
+        let font_size_row = adw::SpinRow::with_range(
+            EDITOR_FONT_SIZE_MIN_PT,
+            EDITOR_FONT_SIZE_MAX_PT,
+            1.0,
+        );
+        font_size_row.set_title("Font size");
+        font_size_row.set_digits(0);
+        font_size_row.set_numeric(true);
+        font_size_row.set_value(initial_font_size);
 
         options_box.append(&sans_frame);
         options_box.append(&serif_frame);
         options_box.append(&custom_frame);
         font_group.add(&options_box);
-
-        let custom_font_row = adw::EntryRow::builder()
-            .title("Custom font family")
-            .text(&custom_font)
-            .show_apply_button(true)
-            .build();
-        custom_font_row.set_sensitive(custom_radio.is_active());
-        font_group.add(&custom_font_row);
+        font_size_group.add(&font_size_row);
 
         let settings_for_sans = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_sans = self.clone();
-        let custom_font_row_for_sans = custom_font_row.clone();
         sans_radio.connect_toggled(move |radio| {
             if !radio.is_active() {
                 return;
             }
 
             let _ = settings_for_sans.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "sans");
-            custom_font_row_for_sans.set_sensitive(false);
 
             if let Some(window) = app_for_sans.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
@@ -277,14 +327,12 @@ impl PennaFrontendApplication {
 
         let settings_for_serif = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_serif = self.clone();
-        let custom_font_row_for_serif = custom_font_row.clone();
         serif_radio.connect_toggled(move |radio| {
             if !radio.is_active() {
                 return;
             }
 
             let _ = settings_for_serif.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "serif");
-            custom_font_row_for_serif.set_sensitive(false);
 
             if let Some(window) = app_for_serif.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
@@ -293,16 +341,37 @@ impl PennaFrontendApplication {
             }
         });
 
+        let open_custom_font_dialog: Rc<dyn Fn()> = {
+            let family_dialog = family_dialog.clone();
+            let family_button = family_button.clone();
+            let window_for_dialog = window.clone();
+            Rc::new(move || {
+                let family_button_for_result = family_button.clone();
+                family_dialog.choose_family(
+                    Some(&window_for_dialog),
+                    None::<&pango::FontFamily>,
+                    None::<&gio::Cancellable>,
+                    move |result| {
+                        if let Ok(family) = result {
+                            let mut desc = pango::FontDescription::new();
+                            desc.set_family(&family.name());
+                            family_button_for_result.set_font_desc(&desc);
+                        }
+                    },
+                );
+            })
+        };
+
         let settings_for_custom_choice = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_custom_choice = self.clone();
-        let custom_font_row_for_custom = custom_font_row.clone();
+        let open_custom_font_dialog_for_toggle = open_custom_font_dialog.clone();
         custom_radio.connect_toggled(move |radio| {
             if !radio.is_active() {
                 return;
             }
 
             let _ = settings_for_custom_choice.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
-            custom_font_row_for_custom.set_sensitive(true);
+            open_custom_font_dialog_for_toggle();
 
             if let Some(window) = app_for_custom_choice.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
@@ -311,19 +380,43 @@ impl PennaFrontendApplication {
             }
         });
 
-        let settings_for_custom = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let app_for_custom = self.clone();
-        let custom_preview_for_entry = custom_preview.clone();
-        custom_font_row.connect_apply(move |row| {
-            let _ = settings_for_custom.set_string(SETTINGS_EDITOR_FONT_CUSTOM_KEY, &row.text());
+        let open_custom_font_dialog_for_click = open_custom_font_dialog.clone();
+        let custom_radio_for_click = custom_radio.clone();
+        let custom_click = gtk::GestureClick::new();
+        custom_click.connect_released(move |_, _, _, _| {
+            if custom_radio_for_click.is_active() {
+                open_custom_font_dialog_for_click();
+            }
+        });
+        custom_radio.add_controller(custom_click);
 
-            let family = row.text();
-            let family = family.trim();
-            let family = if family.is_empty() { "Sans" } else { family };
-            let family = glib::markup_escape_text(family);
-            custom_preview_for_entry.set_markup(&format!(
-                "<span font_desc=\"{} Bold 28\">Ab</span>",
+        let settings_for_custom = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let settings_for_custom_preset = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let app_for_custom = self.clone();
+        let custom_preview_for_family = custom_preview.clone();
+        family_button.connect_font_desc_notify(move |button| {
+            let Some(desc) = button.font_desc() else {
+                return;
+            };
+
+            let family = desc
+                .family()
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| "Sans".to_string());
+            let family = family.trim().to_string();
+            let family = if family.is_empty() {
+                "Sans".to_string()
+            } else {
                 family
+            };
+
+            let _ = settings_for_custom_preset.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
+            let _ = settings_for_custom.set_string(SETTINGS_EDITOR_FONT_CUSTOM_KEY, &family);
+
+            let family_markup = glib::markup_escape_text(&family);
+            custom_preview_for_family.set_markup(&format!(
+                "<span font_family=\"{}\" size=\"xx-large\" weight=\"bold\">Ab</span>",
+                family_markup
             ));
 
             if let Some(window) = app_for_custom.active_window() {
@@ -333,8 +426,20 @@ impl PennaFrontendApplication {
             }
         });
 
+        let app_for_font_size = self.clone();
+        font_size_row.connect_value_notify(move |row| {
+            let size_pt = row.value() as i32;
+
+            if let Some(window) = app_for_font_size.active_window() {
+                if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                    window.set_editor_font_size_pt(size_pt);
+                }
+            }
+        });
+
         page.add(&group);
         page.add(&font_group);
+        page.add(&font_size_group);
         prefs.add(&page);
         prefs.present(Some(&window));
     }

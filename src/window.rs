@@ -214,6 +214,21 @@ impl PennaFrontendWindow {
         self.apply_editor_css();
     }
 
+    pub fn editor_font_size_pt(&self) -> i32 {
+        *self.imp().editor_font_size_pt.borrow()
+    }
+
+    pub fn set_editor_font_size_pt(&self, size_pt: i32) {
+        let next_size = size_pt.clamp(EDITOR_FONT_SIZE_MIN_PT, EDITOR_FONT_SIZE_MAX_PT);
+
+        if next_size == *self.imp().editor_font_size_pt.borrow() {
+            return;
+        }
+
+        *self.imp().editor_font_size_pt.borrow_mut() = next_size;
+        self.apply_editor_css();
+    }
+
     fn setup_actions(&self) {
         let save = gio::SimpleAction::new("save", None);
         save.connect_activate(glib::clone!(
@@ -1054,7 +1069,7 @@ impl PennaFrontendWindow {
 
         let font_family_rule = match font_preset.as_str() {
             "sans" => "font-family: \"Adwaita Sans\", Sans;".to_string(),
-            "serif" => "font-family: \"Noto Serif\", Serif;".to_string(),
+            "serif" => "font-family: \"Free Serif\", Serif;".to_string(),
             "custom" => {
                 let trimmed = custom_font.trim();
                 if trimmed.is_empty() {
@@ -1184,8 +1199,7 @@ impl PennaFrontendWindow {
             return;
         }
 
-        *imp.editor_font_size_pt.borrow_mut() = next_size;
-        self.apply_editor_css();
+        self.set_editor_font_size_pt(next_size);
     }
 
     fn initialize_repository_state(&self) {
