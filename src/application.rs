@@ -31,9 +31,11 @@ const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
+const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
 const EDITOR_FONT_SIZE_MIN_PT: f64 = 10.0;
 const EDITOR_FONT_SIZE_MAX_PT: f64 = 28.0;
 const EDITOR_FONT_SIZE_DEFAULT_PT: f64 = 14.0;
+const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 mod imp {
     use super::*;
@@ -137,6 +139,9 @@ impl PennaFrontendApplication {
         let confetti_active = settings.boolean(SETTINGS_CONFETTI_KEY);
         let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
         let custom_font = settings.string(SETTINGS_EDITOR_FONT_CUSTOM_KEY).to_string();
+        let entry_datetime_format = settings
+            .string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY)
+            .to_string();
 
         let prefs = adw::PreferencesDialog::new();
 
@@ -436,6 +441,37 @@ impl PennaFrontendApplication {
                 }
             }
         });
+
+        let entry_format_row = adw::EntryRow::new();
+        entry_format_row.set_title("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)");
+        entry_format_row.set_text(if entry_datetime_format.trim().is_empty() {
+            ENTRY_DATETIME_FORMAT_DEFAULT
+        } else {
+            entry_datetime_format.trim()
+        });
+        entry_format_row.set_show_apply_button(false);
+
+        let settings_for_entry_format = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let app_for_entry_format = self.clone();
+        entry_format_row.connect_text_notify(move |row| {
+            let text = row.text();
+            let normalized = if text.trim().is_empty() {
+                ENTRY_DATETIME_FORMAT_DEFAULT
+            } else {
+                text.trim()
+            };
+
+            let _ = settings_for_entry_format
+                .set_string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY, normalized);
+
+            if let Some(window) = app_for_entry_format.active_window() {
+                if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                    window.refresh_entry_datetime_format();
+                }
+            }
+        });
+
+        group.add(&entry_format_row);
 
         page.add(&group);
         page.add(&font_group);

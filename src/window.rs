@@ -22,6 +22,7 @@ use gtk::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gdk, gio, glib};
 use gtk::pango;
+use chrono::{format::Item, format::StrftimeItems, NaiveDateTime};
 
 use std::cell::RefCell;
 use std::time::Duration;
@@ -33,6 +34,7 @@ const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
 const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
+const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
@@ -54,6 +56,7 @@ const TAG_LIST_ITEM: &str = "md-list-item";
 const TAG_LINK: &str = "md-link";
 const TAG_CHECKED: &str = "md-checked";
 const TAG_RULE: &str = "md-rule";
+const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 struct CheckboxItem {
     marker_len: usize,
@@ -63,6 +66,10 @@ struct CheckboxItem {
 struct LinkMatch {
     label_len: usize,
     total_len: usize,
+}
+
+struct EntryTimestamp {
+    value: NaiveDateTime,
 }
 
 mod imp {
@@ -101,6 +108,8 @@ mod imp {
         pub notes_flowbox: TemplateChild<gtk::FlowBox>,
         #[template_child]
         pub editor_view: TemplateChild<gtk::TextView>,
+        #[template_child]
+        pub entry_datetime_badge: TemplateChild<gtk::Label>,
         #[template_child]
         pub header_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
@@ -146,6 +155,7 @@ mod imp {
                 notes_search_entry: TemplateChild::default(),
                 notes_flowbox: TemplateChild::default(),
                 editor_view: TemplateChild::default(),
+                entry_datetime_badge: TemplateChild::default(),
                 header_revealer: TemplateChild::default(),
                 app_header_bar: TemplateChild::default(),
                 viewer_mode_button: TemplateChild::default(),
@@ -212,6 +222,12 @@ impl PennaFrontendWindow {
 
     pub fn refresh_editor_appearance(&self) {
         self.apply_editor_css();
+    }
+
+    pub fn refresh_entry_datetime_format(&self) {
+        self.refresh_notes_grid();
+        let entry_id = self.imp().current_entry_id.borrow().clone();
+        self.update_entry_datetime_badge(entry_id.as_deref());
     }
 
     pub fn editor_font_size_pt(&self) -> i32 {
@@ -1560,6 +1576,7 @@ impl PennaFrontendWindow {
         };
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
+        self.update_entry_datetime_badge(Some(entry_id));
         imp.editor_view.buffer().set_text(&content);
         self.apply_editor_mode();
         self.apply_markdown_styling();
@@ -1788,23 +1805,50 @@ impl PennaFrontendWindow {
     }
 
     fn format_entry_date(entry_id: &str) -> String {
-        if entry_id.len() < 12 {
+        let Some(timestamp) = Self::parse_entry_timestamp(entry_id) else {
             return entry_id.to_string();
+        };
+
+        let fmt = Self::effective_entry_datetime_format();
+        timestamp.value.format(&fmt).to_string()
+    }
+
+    fn parse_entry_timestamp(entry_id: &str) -> Option<EntryTimestamp> {
+        let stem = entry_id.strip_suffix(".md").unwrap_or(entry_id);
+        if stem.len() < 12 {
+            return None;
         }
 
-        let stem = &entry_id[..12];
-        if !stem.bytes().all(|c| c.is_ascii_digit()) {
-            return entry_id.to_string();
-        }
+        let timestamp = NaiveDateTime::parse_from_str(&stem[..12], "%Y%m%d%H%M").ok()?;
+        Some(EntryTimestamp { value: timestamp })
+    }
 
-        format!(
-            "{}-{}-{} {}:{}",
-            &stem[0..4],
-            &stem[4..6],
-            &stem[6..8],
-            &stem[8..10],
-            &stem[10..12]
-        )
+    fn effective_entry_datetime_format() -> String {
+        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
+        let raw = settings.string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY).to_string();
+        let candidate = if raw.trim().is_empty() {
+            ENTRY_DATETIME_FORMAT_DEFAULT
+        } else {
+            raw.trim()
+        };
+
+        if Self::is_valid_chrono_format(candidate) {
+            candidate.to_string()
+        } else {
+            ENTRY_DATETIME_FORMAT_DEFAULT.to_string()
+        }
+    }
+
+    fn is_valid_chrono_format(format: &str) -> bool {
+        !StrftimeItems::new(format).any(|item| matches!(item, Item::Error))
+    }
+
+    fn update_entry_datetime_badge(&self, entry_id: Option<&str>) {
+        let imp = self.imp();
+        let text = entry_id.map(Self::format_entry_date).unwrap_or_default();
+
+        imp.entry_datetime_badge.set_label(&text);
+        imp.entry_datetime_badge.set_visible(!text.is_empty());
     }
 
     fn preview_text(content: &str) -> String {
@@ -2121,6 +2165,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = true;
+        self.update_entry_datetime_badge(None);
         imp.content_stack.set_visible_child(&*imp.notes_page);
         imp.app_header_bar.set_visible(true);
         imp.header_revealer.set_reveal_child(true);
@@ -2137,6 +2182,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = false;
+        self.update_entry_datetime_badge(None);
         self.stop_repo_watchers();
         imp.app_stack.set_visible_child(&*imp.setup_page);
         imp.app_header_bar.set_visible(true);
