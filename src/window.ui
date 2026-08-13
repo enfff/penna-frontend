@@ -5,7 +5,7 @@
   <template class="PennaFrontendWindow" parent="AdwApplicationWindow">
     <property name="title" translatable="yes">Penna-frontend</property>
     <property name="default-width">600</property>
-    <property name="default-height">400</property>
+    <property name="default-height">600</property>
     <property name="content">
       <object class="AdwToolbarView">
         <child type="top">
@@ -186,54 +186,35 @@
                         <property name="orientation">vertical</property>
                         <property name="spacing">0</property>
                         <child>
-                          <object class="GtkOverlay">
+                          <object class="GtkScrolledWindow">
+                            <property name="hscrollbar-policy">never</property>
                             <property name="vexpand">True</property>
                             <property name="child">
-                              <object class="GtkScrolledWindow">
-                                <property name="hscrollbar-policy">never</property>
-                                <property name="vexpand">True</property>
+                              <object class="AdwClamp">
+                                <property name="maximum-size">900</property>
+                                <property name="tightening-threshold">560</property>
+                                <property name="margin-top">32</property>
+                                <property name="margin-bottom">20</property>
+                                <property name="margin-start">20</property>
+                                <property name="margin-end">20</property>
                                 <property name="child">
-                                  <object class="AdwClamp">
-                                    <property name="maximum-size">900</property>
-                                    <property name="tightening-threshold">560</property>
-                                    <property name="margin-top">32</property>
-                                    <property name="margin-bottom">20</property>
-                                    <property name="margin-start">20</property>
-                                    <property name="margin-end">20</property>
-                                    <property name="child">
-                                      <object class="GtkTextView" id="editor_view">
-                                        <property name="wrap-mode">word-char</property>
-                                        <property name="monospace">False</property>
-                                        <property name="pixels-above-lines">2</property>
-                                        <property name="pixels-below-lines">8</property>
-                                        <property name="pixels-inside-wrap">2</property>
-                                        <property name="top-margin">16</property>
-                                        <property name="bottom-margin">16</property>
-                                        <property name="left-margin">16</property>
-                                        <property name="right-margin">16</property>
-                                        <style>
-                                          <class name="immersive-editor"/>
-                                        </style>
-                                      </object>
-                                    </property>
+                                  <object class="GtkTextView" id="editor_view">
+                                    <property name="wrap-mode">word-char</property>
+                                    <property name="monospace">False</property>
+                                    <property name="pixels-above-lines">2</property>
+                                    <property name="pixels-below-lines">8</property>
+                                    <property name="pixels-inside-wrap">2</property>
+                                    <property name="top-margin">16</property>
+                                    <property name="bottom-margin">16</property>
+                                    <property name="left-margin">16</property>
+                                    <property name="right-margin">16</property>
+                                    <style>
+                                      <class name="immersive-editor"/>
+                                    </style>
                                   </object>
                                 </property>
                               </object>
                             </property>
-                            <child type="overlay">
-                              <object class="GtkLabel" id="entry_datetime_badge">
-                                <property name="halign">end</property>
-                                <property name="valign">start</property>
-                                <property name="xalign">1.0</property>
-                                <property name="margin-top">10</property>
-                                <property name="margin-end">64</property>
-                                <property name="label"></property>
-                                <style>
-                                  <class name="caption"/>
-                                  <class name="dim-label"/>
-                                </style>
-                              </object>
-                            </child>
                           </object>
                         </child>
                       </object>

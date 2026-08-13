@@ -35,6 +35,7 @@ const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
 const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
+const WINDOW_TITLE_BASE: &str = "Diario";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
@@ -109,8 +110,6 @@ mod imp {
         #[template_child]
         pub editor_view: TemplateChild<gtk::TextView>,
         #[template_child]
-        pub entry_datetime_badge: TemplateChild<gtk::Label>,
-        #[template_child]
         pub header_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
         pub app_header_bar: TemplateChild<adw::HeaderBar>,
@@ -155,7 +154,6 @@ mod imp {
                 notes_search_entry: TemplateChild::default(),
                 notes_flowbox: TemplateChild::default(),
                 editor_view: TemplateChild::default(),
-                entry_datetime_badge: TemplateChild::default(),
                 header_revealer: TemplateChild::default(),
                 app_header_bar: TemplateChild::default(),
                 viewer_mode_button: TemplateChild::default(),
@@ -227,7 +225,7 @@ impl PennaFrontendWindow {
     pub fn refresh_entry_datetime_format(&self) {
         self.refresh_notes_grid();
         let entry_id = self.imp().current_entry_id.borrow().clone();
-        self.update_entry_datetime_badge(entry_id.as_deref());
+        self.update_window_title(entry_id.as_deref());
     }
 
     pub fn editor_font_size_pt(&self) -> i32 {
@@ -1576,7 +1574,7 @@ impl PennaFrontendWindow {
         };
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
-        self.update_entry_datetime_badge(Some(entry_id));
+        self.update_window_title(Some(entry_id));
         imp.editor_view.buffer().set_text(&content);
         self.apply_editor_mode();
         self.apply_markdown_styling();
@@ -1843,12 +1841,14 @@ impl PennaFrontendWindow {
         !StrftimeItems::new(format).any(|item| matches!(item, Item::Error))
     }
 
-    fn update_entry_datetime_badge(&self, entry_id: Option<&str>) {
-        let imp = self.imp();
-        let text = entry_id.map(Self::format_entry_date).unwrap_or_default();
+    fn update_window_title(&self, entry_id: Option<&str>) {
+        let title = entry_id
+            .map(Self::format_entry_date)
+            .filter(|text| !text.is_empty())
+            .map(|text| format!("{text}"))
+            .unwrap_or_else(|| WINDOW_TITLE_BASE.to_string());
 
-        imp.entry_datetime_badge.set_label(&text);
-        imp.entry_datetime_badge.set_visible(!text.is_empty());
+        self.set_title(Some(&title));
     }
 
     fn preview_text(content: &str) -> String {
@@ -2165,7 +2165,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = true;
-        self.update_entry_datetime_badge(None);
+        self.update_window_title(None);
         imp.content_stack.set_visible_child(&*imp.notes_page);
         imp.app_header_bar.set_visible(true);
         imp.header_revealer.set_reveal_child(true);
@@ -2182,7 +2182,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = false;
-        self.update_entry_datetime_badge(None);
+        self.update_window_title(None);
         self.stop_repo_watchers();
         imp.app_stack.set_visible_child(&*imp.setup_page);
         imp.app_header_bar.set_visible(true);
