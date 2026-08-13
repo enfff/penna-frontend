@@ -166,9 +166,6 @@ impl PennaFrontendApplication {
             .title("Editor")
             .build();
         let font_size_group = adw::PreferencesGroup::new();
-        let entry_group = adw::PreferencesGroup::builder()
-            .title("Entries")
-            .build();
 
         let options_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         options_box.set_hexpand(true);
@@ -453,17 +450,14 @@ impl PennaFrontendApplication {
         });
 
         let entry_format_row = adw::EntryRow::new();
-        entry_format_row.set_title("Entry date format");
+        entry_format_row
+            .set_title("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)");
         entry_format_row.set_text(if entry_datetime_format.trim().is_empty() {
             ENTRY_DATETIME_FORMAT_DEFAULT
         } else {
             entry_datetime_format.trim()
         });
         entry_format_row.set_show_apply_button(false);
-
-        let entry_format_hint = gtk::Label::new(Some("Chrono tokens, e.g. %Y-%m-%d or %Y-%m-%d %H:%M"));
-        entry_format_hint.set_xalign(0.0);
-        entry_format_hint.add_css_class("dim-label");
 
         let settings_for_entry_format = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_entry_format = self.clone();
@@ -485,13 +479,11 @@ impl PennaFrontendApplication {
             }
         });
 
-        entry_group.add(&entry_format_row);
-        entry_group.add(&entry_format_hint);
+        group.add(&entry_format_row);
 
         page.add(&group);
         page.add(&font_group);
         page.add(&font_size_group);
-        page.add(&entry_group);
         prefs.add(&page);
         prefs.present(Some(&window));
     }
