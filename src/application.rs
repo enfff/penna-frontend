@@ -55,6 +55,7 @@ mod imp {
             self.parent_constructed();
             let obj = self.obj();
             obj.setup_gactions();
+            obj.set_accels_for_action("app.preferences", &["<control>comma"]);
             obj.set_accels_for_action("app.shortcuts", &["F1"]);
             obj.set_accels_for_action("app.quit", &["<control>q"]);
             obj.set_accels_for_action("win.back-to-grid", &["Escape"]);
@@ -62,7 +63,7 @@ mod imp {
             obj.set_accels_for_action("win.wrap-bold", &["<control>b"]);
             obj.set_accels_for_action("win.wrap-italic", &["<control>i"]);
             obj.set_accels_for_action("win.wrap-link", &["<control>k"]);
-            obj.set_accels_for_action("win.wrap-code", &["<control>e"]);
+            obj.set_accels_for_action("win.edit-tags", &["<control>e"]);
             obj.set_accels_for_action("win.wrap-strikethrough", &["<control><shift>x"]);
             obj.set_accels_for_action("win.save", &["<control>s"]);
             obj.set_accels_for_action("win.prefix-bullet-list", &["<control><shift>8"]);

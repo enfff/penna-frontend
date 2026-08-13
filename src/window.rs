@@ -25,9 +25,10 @@ use gtk::pango;
 use chrono::{format::Item, format::StrftimeItems, NaiveDateTime};
 
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 
-use crate::engine::{EngineMock, JournalHandle, SyncAction};
+use crate::engine::{EngineMock, EntrySummary, JournalHandle, SyncAction};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
@@ -123,6 +124,7 @@ mod imp {
         pub engine: RefCell<EngineMock>,
         pub current_handle: RefCell<Option<JournalHandle>>,
         pub current_entry_id: RefCell<Option<String>>,
+        pub current_entry_tags: RefCell<Vec<String>>,
         pub entries_monitor: RefCell<Option<gio::FileMonitor>>,
         pub refresh_source: RefCell<Option<glib::SourceId>>,
         pub cursor_follow_source: RefCell<Option<glib::SourceId>>,
@@ -162,6 +164,7 @@ mod imp {
                 engine: RefCell::default(),
                 current_handle: RefCell::default(),
                 current_entry_id: RefCell::default(),
+                current_entry_tags: RefCell::default(),
                 entries_monitor: RefCell::default(),
                 refresh_source: RefCell::default(),
                 cursor_follow_source: RefCell::default(),
@@ -333,6 +336,16 @@ impl PennaFrontendWindow {
             }
         ));
         self.add_action(&wrap_code);
+
+        let edit_tags = gio::SimpleAction::new("edit-tags", None);
+        edit_tags.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.open_tags_dialog();
+            }
+        ));
+        self.add_action(&edit_tags);
 
         let wrap_link = gio::SimpleAction::new("wrap-link", None);
         wrap_link.connect_activate(glib::clone!(
@@ -1295,13 +1308,16 @@ impl PennaFrontendWindow {
 
         let mut first_visible_button: Option<gtk::Button> = None;
 
-        for entry_id in &entries {
+        for entry in &entries {
             let content = {
                 let engine = imp.engine.borrow();
-                engine.get_entry(handle, entry_id).unwrap_or_default()
+                engine
+                    .get_entry(handle, &entry.entry_id)
+                    .map(|item| item.content)
+                    .unwrap_or_default()
             };
 
-            if !Self::entry_matches_query(entry_id, &content, &query) {
+            if !Self::entry_matches_query(&entry.entry_id, &content, &entry.tags, &query) {
                 continue;
             }
 
@@ -1310,7 +1326,7 @@ impl PennaFrontendWindow {
             button.add_css_class("flat");
             button.set_hexpand(true);
             button.set_halign(gtk::Align::Fill);
-            button.set_widget_name(entry_id);
+            button.set_widget_name(&entry.entry_id);
 
             let card_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
             card_box.set_margin_top(10);
@@ -1318,7 +1334,7 @@ impl PennaFrontendWindow {
             card_box.set_margin_start(10);
             card_box.set_margin_end(10);
 
-            let date_label = gtk::Label::new(Some(&Self::format_entry_date(entry_id)));
+            let date_label = gtk::Label::new(Some(&Self::format_entry_date(&entry.entry_id)));
             date_label.set_xalign(0.0);
             date_label.add_css_class("heading");
 
@@ -1330,9 +1346,19 @@ impl PennaFrontendWindow {
             preview_label.add_css_class("dim-label");
 
             card_box.append(&date_label);
+            if !entry.tags.is_empty() {
+                let tags_label = gtk::Label::new(Some(&Self::format_tags_for_display(&entry.tags)));
+                tags_label.set_xalign(0.0);
+                tags_label.set_wrap(true);
+                tags_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+                tags_label.add_css_class("caption");
+                tags_label.add_css_class("dim-label");
+                card_box.append(&tags_label);
+            }
             card_box.append(&preview_label);
             button.set_child(Some(&card_box));
 
+            let entry_id = entry.entry_id.clone();
             button.connect_clicked(glib::clone!(
                 #[weak(rename_to = window)]
                 self,
@@ -1363,14 +1389,15 @@ impl PennaFrontendWindow {
         }
     }
 
-    fn entry_matches_query(entry_id: &str, content: &str, query: &str) -> bool {
+    fn entry_matches_query(entry_id: &str, content: &str, tags: &[String], query: &str) -> bool {
         if query.is_empty() {
             return true;
         }
 
         let entry_id = entry_id.to_lowercase();
         let content = content.to_lowercase();
-        entry_id.contains(query) || content.contains(query)
+        let tags = tags.join(" ").to_lowercase();
+        entry_id.contains(query) || content.contains(query) || tags.contains(query)
     }
 
     fn note_buttons(&self) -> Vec<gtk::Button> {
@@ -1570,12 +1597,17 @@ impl PennaFrontendWindow {
 
         let content = {
             let engine = imp.engine.borrow();
-            engine.get_entry(handle, entry_id).unwrap_or_default()
+            engine.get_entry(handle, entry_id)
+        };
+
+        let Some(entry) = content else {
+            return;
         };
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
+        *imp.current_entry_tags.borrow_mut() = entry.tags.clone();
         self.update_window_title(Some(entry_id));
-        imp.editor_view.buffer().set_text(&content);
+        imp.editor_view.buffer().set_text(&entry.content);
         self.apply_editor_mode();
         self.apply_markdown_styling();
         self.show_editor_view();
@@ -1597,10 +1629,11 @@ impl PennaFrontendWindow {
         let buffer = imp.editor_view.buffer();
         let (start, end) = buffer.bounds();
         let content = buffer.text(&start, &end, true).to_string();
+        let tags = imp.current_entry_tags.borrow().clone();
 
         let save_result = {
             let mut engine = imp.engine.borrow_mut();
-            engine.entry_save(handle, &entry_id, &content)
+            engine.entry_save(handle, &entry_id, &content, &tags)
         };
 
         match save_result {
@@ -1849,6 +1882,186 @@ impl PennaFrontendWindow {
             .unwrap_or_else(|| WINDOW_TITLE_BASE.to_string());
 
         self.set_title(Some(&title));
+    }
+
+    fn format_tags_for_display(tags: &[String]) -> String {
+        tags.iter()
+            .map(|tag| format!("#{tag}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn open_tags_dialog(&self) {
+        let imp = self.imp();
+        let Some(handle) = *imp.current_handle.borrow() else {
+            return;
+        };
+        let Some(entry_id) = imp.current_entry_id.borrow().clone() else {
+            return;
+        };
+
+        let dialog = gtk::Dialog::builder()
+            .transient_for(self)
+            .modal(true)
+            .title("Tags")
+            .build();
+
+        let content = dialog.content_area();
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        content.set_spacing(12);
+
+        let search_entry = gtk::SearchEntry::new();
+        search_entry.set_placeholder_text(Some("Type to filter or create tag"));
+        content.append(&search_entry);
+
+        let scrolled = gtk::ScrolledWindow::new();
+        scrolled.set_hscrollbar_policy(gtk::PolicyType::Never);
+        scrolled.set_vscrollbar_policy(gtk::PolicyType::Automatic);
+        scrolled.set_propagate_natural_height(true);
+        scrolled.set_max_content_height(320);
+        scrolled.set_min_content_height(180);
+        scrolled.set_max_content_width(360);
+        scrolled.set_min_content_width(320);
+
+        let list_box = gtk::ListBox::new();
+        list_box.add_css_class("boxed-list");
+        list_box.set_selection_mode(gtk::SelectionMode::None);
+        scrolled.set_child(Some(&list_box));
+        content.append(&scrolled);
+
+        let available_tags = Rc::new(RefCell::new({
+            let engine = imp.engine.borrow();
+            engine.list_tags(handle)
+        }));
+        let current_tags = Rc::new(RefCell::new(imp.current_entry_tags.borrow().clone()));
+
+        let render_rows: Rc<dyn Fn()> = {
+            let list_box = list_box.clone();
+            let search_entry = search_entry.clone();
+            let available_tags = available_tags.clone();
+            let current_tags = current_tags.clone();
+            let entry_id = entry_id.clone();
+            Rc::new(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move || {
+                    while let Some(child) = list_box.first_child() {
+                        list_box.remove(&child);
+                    }
+
+                    let filter = search_entry.text().trim().to_lowercase();
+                    let mut tags = available_tags.borrow().clone();
+                    tags.sort_by_key(|tag| {
+                        let selected = current_tags.borrow().iter().any(|current| current == tag);
+                        (!selected, tag.to_lowercase())
+                    });
+
+                    for tag in tags {
+                        if !filter.is_empty() && !tag.to_lowercase().contains(&filter) {
+                            continue;
+                        }
+
+                        let row = gtk::ListBoxRow::new();
+                        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                        row_box.set_margin_top(8);
+                        row_box.set_margin_bottom(8);
+                        row_box.set_margin_start(12);
+                        row_box.set_margin_end(12);
+
+                        let label = gtk::Label::new(Some(&tag));
+                        label.set_hexpand(true);
+                        label.set_halign(gtk::Align::Start);
+                        label.set_xalign(0.0);
+
+                        let toggle = gtk::CheckButton::new();
+                        toggle.set_active(current_tags.borrow().iter().any(|current| current == &tag));
+
+                        toggle.connect_toggled(glib::clone!(
+                            #[weak(rename_to = window)]
+                            window,
+                            #[strong]
+                            current_tags,
+                            #[strong]
+                            tag,
+                            #[strong]
+                            entry_id,
+                            move |button| {
+                                let result = {
+                                    let mut engine = window.imp().engine.borrow_mut();
+                                    if button.is_active() {
+                                        engine.add_tag(handle, &entry_id, &tag)
+                                    } else {
+                                        engine.remove_tag(handle, &entry_id, &tag)
+                                    }
+                                };
+
+                                if let Ok(tags) = result {
+                                    *current_tags.borrow_mut() = tags.clone();
+                                    *window.imp().current_entry_tags.borrow_mut() = tags;
+                                    window.refresh_notes_grid();
+                                }
+                            }
+                        ));
+
+                        row_box.append(&label);
+                        row_box.append(&toggle);
+                        row.set_child(Some(&row_box));
+                        list_box.append(&row);
+                    }
+                }
+            ))
+        };
+
+        search_entry.connect_search_changed(glib::clone!(
+            #[strong]
+            render_rows,
+            move |_| {
+                render_rows();
+            }
+        ));
+
+        search_entry.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong]
+            available_tags,
+            #[strong]
+            current_tags,
+            #[strong]
+            render_rows,
+            #[strong]
+            entry_id,
+            move |entry| {
+                let tag = entry.text().trim().to_string();
+                if tag.is_empty() {
+                    return;
+                }
+
+                let result = {
+                    let mut engine = window.imp().engine.borrow_mut();
+                    engine.add_tag(handle, &entry_id, &tag)
+                };
+
+                if let Ok(tags) = result {
+                    if !available_tags.borrow().iter().any(|existing| existing == &tag) {
+                        available_tags.borrow_mut().push(tag.clone());
+                        available_tags.borrow_mut().sort_unstable();
+                    }
+                    *current_tags.borrow_mut() = tags.clone();
+                    *window.imp().current_entry_tags.borrow_mut() = tags;
+                    entry.set_text("");
+                    window.refresh_notes_grid();
+                    render_rows();
+                }
+            }
+        ));
+
+        render_rows();
+        dialog.present();
+        search_entry.grab_focus();
     }
 
     fn preview_text(content: &str) -> String {
@@ -2165,6 +2378,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = true;
+        imp.current_entry_tags.borrow_mut().clear();
         self.update_window_title(None);
         imp.content_stack.set_visible_child(&*imp.notes_page);
         imp.app_header_bar.set_visible(true);
@@ -2182,6 +2396,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = false;
+        imp.current_entry_tags.borrow_mut().clear();
         self.update_window_title(None);
         self.stop_repo_watchers();
         imp.app_stack.set_visible_child(&*imp.setup_page);
