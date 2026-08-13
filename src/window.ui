@@ -5,7 +5,7 @@
   <template class="PennaFrontendWindow" parent="AdwApplicationWindow">
     <property name="title" translatable="yes">Penna-frontend</property>
     <property name="default-height">800</property>
-    <property name="default-width">240</property>
+    <property name="default-width">600</property>
     <property name="content">
       <object class="AdwToolbarView">
         <child type="top">
@@ -77,7 +77,6 @@
                     <child>
                       <object class="GtkEntry" id="repo_path_entry">
                         <property name="hexpand">True</property>
-                        <property name="width-chars">56</property>
                         <property name="editable">False</property>
                         <property name="placeholder-text" translatable="yes">Choose repository folder</property>
                       </object>

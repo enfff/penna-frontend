@@ -1370,7 +1370,6 @@ impl PennaFrontendWindow {
             tags_box.add_css_class("note-tags");
             tags_box.set_halign(gtk::Align::End);
             tags_box.set_valign(gtk::Align::Center);
-            tags_box.set_width_request(320);
 
             let tags_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             tags_spacer.set_hexpand(true);
