@@ -166,6 +166,9 @@ impl PennaFrontendApplication {
             .title("Editor")
             .build();
         let font_size_group = adw::PreferencesGroup::new();
+        let entry_group = adw::PreferencesGroup::builder()
+            .title("Entries")
+            .build();
 
         let options_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         options_box.set_hexpand(true);
@@ -192,7 +195,7 @@ impl PennaFrontendApplication {
         sans_preview.set_justify(gtk::Justification::Center);
         sans_preview.set_halign(gtk::Align::Center);
         sans_card.append(&sans_preview);
-        let sans_caption = gtk::Label::new(Some("Sans (Adwaita Sans)"));
+        let sans_caption = gtk::Label::new(Some("Adwaita Sans"));
         sans_caption.add_css_class("dim-label");
         sans_caption.set_halign(gtk::Align::Center);
         sans_card.append(&sans_caption);
@@ -213,7 +216,7 @@ impl PennaFrontendApplication {
         serif_preview.set_justify(gtk::Justification::Center);
         serif_preview.set_halign(gtk::Align::Center);
         serif_card.append(&serif_preview);
-        let serif_caption = gtk::Label::new(Some("Serif (Free Serif)"));
+        let serif_caption = gtk::Label::new(Some("Free Serif"));
         serif_caption.add_css_class("dim-label");
         serif_caption.set_halign(gtk::Align::Center);
         serif_card.append(&serif_caption);
@@ -247,7 +250,12 @@ impl PennaFrontendApplication {
         ));
         custom_preview.set_justify(gtk::Justification::Center);
         custom_card.append(&custom_preview);
-        let custom_caption = gtk::Label::new(Some("Custom"));
+        let initial_custom_caption = if custom_font.trim().is_empty() {
+            "Custom"
+        } else {
+            custom_font.trim()
+        };
+        let custom_caption = gtk::Label::new(Some(initial_custom_caption));
         custom_caption.add_css_class("dim-label");
         custom_caption.set_halign(gtk::Align::Center);
         custom_card.append(&custom_caption);
@@ -399,6 +407,7 @@ impl PennaFrontendApplication {
         let settings_for_custom_preset = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_custom = self.clone();
         let custom_preview_for_family = custom_preview.clone();
+        let custom_caption_for_family = custom_caption.clone();
         family_button.connect_font_desc_notify(move |button| {
             let Some(desc) = button.font_desc() else {
                 return;
@@ -417,6 +426,7 @@ impl PennaFrontendApplication {
 
             let _ = settings_for_custom_preset.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
             let _ = settings_for_custom.set_string(SETTINGS_EDITOR_FONT_CUSTOM_KEY, &family);
+            custom_caption_for_family.set_label(&family);
 
             let family_markup = glib::markup_escape_text(&family);
             custom_preview_for_family.set_markup(&format!(
@@ -443,13 +453,17 @@ impl PennaFrontendApplication {
         });
 
         let entry_format_row = adw::EntryRow::new();
-        entry_format_row.set_title("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)");
+        entry_format_row.set_title("Entry date format");
         entry_format_row.set_text(if entry_datetime_format.trim().is_empty() {
             ENTRY_DATETIME_FORMAT_DEFAULT
         } else {
             entry_datetime_format.trim()
         });
         entry_format_row.set_show_apply_button(false);
+
+        let entry_format_hint = gtk::Label::new(Some("Chrono tokens, e.g. %Y-%m-%d or %Y-%m-%d %H:%M"));
+        entry_format_hint.set_xalign(0.0);
+        entry_format_hint.add_css_class("dim-label");
 
         let settings_for_entry_format = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_entry_format = self.clone();
@@ -471,11 +485,13 @@ impl PennaFrontendApplication {
             }
         });
 
-        group.add(&entry_format_row);
+        entry_group.add(&entry_format_row);
+        entry_group.add(&entry_format_hint);
 
         page.add(&group);
         page.add(&font_group);
         page.add(&font_size_group);
+        page.add(&entry_group);
         prefs.add(&page);
         prefs.present(Some(&window));
     }
