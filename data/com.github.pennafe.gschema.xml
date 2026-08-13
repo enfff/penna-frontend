@@ -27,7 +27,7 @@
 			<description>Custom font family used when editor font preset is custom.</description>
 		</key>
 		<key name="entry-datetime-format" type="s">
-			<default>'%Y-%m-%d'</default>
+			<default>'%a %D'</default>
 			<summary>Entry date/time display format</summary>
 			<description>Chrono strftime format used to render entry IDs, e.g. %Y-%m-%d or %Y-%m-%d %H:%M.</description>
 		</key>
