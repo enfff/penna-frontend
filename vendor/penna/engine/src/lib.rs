@@ -508,6 +508,7 @@ impl PennaEngine {
     }
 
     fn next_available_entry_id(repo: &GitEntryRepository) -> Result<String, EngineError> {
+        // Required storage format: YYYYMMDDHHmm.md
         let mut candidate = Local::now();
         for _ in 0..(24 * 60) {
             let id = candidate.format("%Y%m%d%H%M").to_string();

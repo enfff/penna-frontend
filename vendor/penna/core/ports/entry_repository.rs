@@ -77,7 +77,7 @@ pub trait MarkdownImporter: Send + Sync {
 
 pub trait MarkdownExporter: Send + Sync {
     fn export(&self, document: &Document) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
-
+    
     fn export_with_sidecar(
         &self,
         document: &Document,

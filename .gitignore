@@ -17,3 +17,6 @@
 # Local environment files
 .env
 .env.*
+
+# Copy of our penna engine, temporary until we can get it published to crates.io
+vendor/

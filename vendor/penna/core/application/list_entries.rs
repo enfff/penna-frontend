@@ -1,4 +1,3 @@
-use crate::domain::Entry;
 use crate::ports::{EntryRepository, RepositoryError};
 
 pub struct ListEntriesUseCase<R: EntryRepository> {
@@ -10,7 +9,7 @@ impl<R: EntryRepository> ListEntriesUseCase<R> {
         Self { repository }
     }
 
-    pub fn execute(&self) -> Result<Vec<Entry>, RepositoryError> {
+    pub fn execute(&self) -> Result<Vec<crate::domain::Entry>, RepositoryError> {
         self.repository.list()
     }
 }

@@ -25,7 +25,7 @@ impl<I: MarkdownImporter> MarkdownToDocumentUseCase<I> {
 
     pub fn execute(&self, input: MarkdownToDocumentInput) -> Result<Document, MarkdownToDocumentError> {
         let frontmatter = input.frontmatter.unwrap_or_default();
-
+        
         self.importer
             .import(&input.markdown_body, &frontmatter)
             .map_err(MarkdownToDocumentError::Import)
