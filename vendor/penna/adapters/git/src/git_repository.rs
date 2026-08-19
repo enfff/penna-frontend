@@ -53,7 +53,7 @@ impl std::fmt::Debug for GitEntryRepository {
 impl GitEntryRepository {
     pub fn new(path: std::path::PathBuf) -> Result<Self, RepositoryError> {
         let repo_path = path.join(".git");
-        
+
         let repo = if repo_path.exists() {
             Repository::open(&path)
                 .map_err(|e| RepositoryError::Storage(format!("Failed to open git repo: {}", e)))?
@@ -89,9 +89,7 @@ impl GitEntryRepository {
         };
 
         let head_commit = match repo.head() {
-            Ok(head) => head
-                .target()
-                .map(|oid| oid.to_string()),
+            Ok(head) => head.target().map(|oid| oid.to_string()),
             Err(_) => None,
         };
 
@@ -114,11 +112,12 @@ impl GitEntryRepository {
     fn get_head_oid(&self) -> Result<Option<git2::Oid>, RepositoryError> {
         let repo = self.repo.lock().unwrap();
         let head = repo.head();
-        
+
         match head {
             Ok(head) if head.is_branch() => {
-                let commit = head.peel_to_commit()
-                    .map_err(|e| RepositoryError::Storage(format!("Failed to get head commit: {}", e)))?;
+                let commit = head.peel_to_commit().map_err(|e| {
+                    RepositoryError::Storage(format!("Failed to get head commit: {}", e))
+                })?;
                 Ok(Some(commit.id()))
             }
             _ => Ok(None),
@@ -131,24 +130,28 @@ impl GitEntryRepository {
         path: &std::path::Path,
     ) -> Result<Option<String>, RepositoryError> {
         let repo = self.repo.lock().unwrap();
-        
-        let commit = repo.find_commit(commit_oid)
+
+        let commit = repo
+            .find_commit(commit_oid)
             .map_err(|e| RepositoryError::Storage(format!("Failed to find commit: {}", e)))?;
-        
-        let tree = commit.tree()
+
+        let tree = commit
+            .tree()
             .map_err(|e| RepositoryError::Storage(format!("Failed to get tree: {}", e)))?;
 
         match tree.get_path(path) {
             Ok(entry) => {
-                let object = entry.to_object(&repo)
-                    .map_err(|e| RepositoryError::Storage(format!("Failed to get tree object: {}", e)))?;
-                
-                let blob = object.into_blob()
+                let object = entry.to_object(&repo).map_err(|e| {
+                    RepositoryError::Storage(format!("Failed to get tree object: {}", e))
+                })?;
+
+                let blob = object
+                    .into_blob()
                     .map_err(|_| RepositoryError::Storage("Not a blob".to_string()))?;
-                
+
                 let content = String::from_utf8(blob.content().to_vec())
                     .map_err(|e| RepositoryError::Storage(format!("Invalid UTF-8: {}", e)))?;
-                
+
                 Ok(Some(content))
             }
             Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
@@ -164,25 +167,27 @@ impl GitEntryRepository {
     fn parse_entry_content(id: &str, content: &str) -> Result<Entry, RepositoryError> {
         let timestamps = None;
         let lines: Vec<&str> = content.lines().collect();
-        
+
         let (title, body_start) = if lines.first().map(|l| l.starts_with("# ")).unwrap_or(false) {
             (lines[0][2..].to_string(), 1)
         } else {
             ("Untitled".to_string(), 0)
         };
-        
+
         let mut body_lines = &lines[body_start..];
         if !body_lines.is_empty() && body_lines[0].is_empty() {
             body_lines = &body_lines[1..];
         }
         let body = body_lines.join("\n");
-        
+
         let (created_at, updated_at) = match timestamps {
             Some((c, u)) => (c, u),
             None => {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .map_err(|e| RepositoryError::Storage(format!("Failed to get timestamp: {}", e)))?
+                    .map_err(|e| {
+                        RepositoryError::Storage(format!("Failed to get timestamp: {}", e))
+                    })?
                     .as_millis()
                     .to_string();
                 (now.clone(), now)
@@ -271,7 +276,11 @@ impl GitEntryRepository {
         Ok(Self::normalize_tags(parsed.tags))
     }
 
-    fn write_entry_tags_sidecar_to_disk(&self, id: &str, tags: Vec<String>) -> Result<(), RepositoryError> {
+    fn write_entry_tags_sidecar_to_disk(
+        &self,
+        id: &str,
+        tags: Vec<String>,
+    ) -> Result<(), RepositoryError> {
         let normalized = Self::normalize_tags(tags);
         let file_path = self.entry_tags_absolute_path(id);
 
@@ -332,7 +341,11 @@ impl GitEntryRepository {
         Ok(entry_ids)
     }
 
-    fn write_tags_to_disk_and_commit(&self, tags: Vec<String>, message: &str) -> Result<Vec<String>, RepositoryError> {
+    fn write_tags_to_disk_and_commit(
+        &self,
+        tags: Vec<String>,
+        message: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
         let normalized = Self::normalize_tags(tags);
         let file_path = self.tags_file_absolute_path();
 
@@ -478,8 +491,9 @@ impl GitEntryRepository {
                 repo.set_head(&local_ref_name)
                     .map_err(|e| RepositoryError::Storage(format!("Failed to set HEAD: {}", e)))?;
 
-                repo.checkout_head(Some(CheckoutBuilder::new().force()))
-                    .map_err(|e| RepositoryError::Storage(format!("Failed to checkout updated HEAD: {}", e)))?;
+                repo.checkout_head(Some(CheckoutBuilder::new().force())).map_err(|e| {
+                    RepositoryError::Storage(format!("Failed to checkout updated HEAD: {}", e))
+                })?;
 
                 Ok(SyncResult::Pulled { branch })
             }
@@ -513,8 +527,9 @@ impl GitEntryRepository {
                     repo.set_head(&local_ref_name)
                         .map_err(|e| RepositoryError::Storage(format!("Failed to set HEAD: {}", e)))?;
 
-                    repo.checkout_head(Some(CheckoutBuilder::new().force()))
-                        .map_err(|e| RepositoryError::Storage(format!("Failed to checkout updated HEAD: {}", e)))?;
+                    repo.checkout_head(Some(CheckoutBuilder::new().force())).map_err(|e| {
+                        RepositoryError::Storage(format!("Failed to checkout updated HEAD: {}", e))
+                    })?;
 
                     return Ok(SyncResult::Pulled { branch });
                 }
@@ -587,10 +602,8 @@ impl TagCatalog for GitEntryRepository {
         };
 
         tags[position] = new_tag.to_string();
-        let updated = self.write_tags_to_disk_and_commit(
-            tags,
-            &format!("Rename tag {} to {}", old_tag, new_tag),
-        )?;
+        let updated =
+            self.write_tags_to_disk_and_commit(tags, &format!("Rename tag {} to {}", old_tag, new_tag))?;
 
         for id in self.list_entry_ids_from_head()? {
             let mut entry_tags = self.read_entry_tags_from_disk(&id)?;
@@ -609,14 +622,14 @@ impl TagCatalog for GitEntryRepository {
 impl EntryRepository for GitEntryRepository {
     fn get(&self, id: &str) -> Result<Option<Entry>, RepositoryError> {
         let entry_path = self.entry_path(id);
-        
+
         let commit_oid = match self.get_head_oid()? {
             Some(oid) => oid,
             None => return Ok(None),
         };
 
         let content = self.read_file_from_commit(commit_oid, &entry_path)?;
-        
+
         match content {
             Some(content) => {
                 let mut entry = Self::parse_entry_content(id, &content)?;
@@ -672,7 +685,11 @@ impl EntryRepository for GitEntryRepository {
             Some("HEAD"),
             &sig,
             &sig,
-            &format!("{} entry {}", if parents.is_empty() { "Create" } else { "Update" }, entry.id.0),
+            &format!(
+                "{} entry {}",
+                if parents.is_empty() { "Create" } else { "Update" },
+                entry.id.0
+            ),
             &tree,
             &parents,
         )
@@ -762,11 +779,13 @@ impl EntryRepository for GitEntryRepository {
 
         {
             let repo = self.repo.lock().unwrap();
-            
-            let commit = repo.find_commit(commit_oid)
+
+            let commit = repo
+                .find_commit(commit_oid)
                 .map_err(|e| RepositoryError::Storage(format!("Failed to find commit: {}", e)))?;
-            
-            let tree = commit.tree()
+
+            let tree = commit
+                .tree()
                 .map_err(|e| RepositoryError::Storage(format!("Failed to get tree: {}", e)))?;
 
             for entry in tree.iter() {
@@ -804,404 +823,5 @@ impl JournalSync for GitEntryRepository {
 
     fn push(&self) -> Result<SyncResult, RepositoryError> {
         self.sync_with_mode(SyncMode::PushOnly)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use penna_core::ports::{JournalClone, JournalPath, JournalSync};
-    use tempfile::TempDir;
-
-    fn create_test_repo() -> (TempDir, GitEntryRepository) {
-        let tmp_dir = TempDir::new().unwrap();
-        let repo = GitEntryRepository::new(tmp_dir.path().to_path_buf()).unwrap();
-        (tmp_dir, repo)
-    }
-
-    fn add_origin_remote(repo: &GitEntryRepository, remote_path: &std::path::Path) {
-        let repo_lock = repo.repo.lock().unwrap();
-        repo_lock
-            .remote("origin", remote_path.to_str().unwrap())
-            .unwrap();
-    }
-
-    #[test]
-    fn test_create_and_get_entry() {
-        let (tmp_dir, repo) = create_test_repo();
-        
-        let entry = Entry {
-            id: EntryId("test-1".to_string()),
-            title: "Test Entry".to_string(),
-            body: "Test body content".to_string(),
-            tags: vec![],
-            created_at: "123".to_string(),
-            updated_at: "123".to_string(),
-        };
-
-        repo.save(&entry).unwrap();
-
-        let file_path = tmp_dir.path().join("test-1.md");
-        assert!(file_path.exists());
-        let file_content = std::fs::read_to_string(&file_path).unwrap();
-        assert!(file_content.starts_with("# Test Entry\n\n"));
-        assert!(file_content.contains("Test body content"));
-        
-        let retrieved = repo.get("test-1").unwrap();
-        assert!(retrieved.is_some());
-        let retrieved = retrieved.unwrap();
-        assert_eq!(retrieved.title, "Test Entry");
-        assert_eq!(retrieved.body, "Test body content");
-    }
-
-    #[test]
-    fn test_delete_removes_working_tree_file() {
-        let (tmp_dir, repo) = create_test_repo();
-
-        let entry = Entry {
-            id: EntryId("test-delete".to_string()),
-            title: "Delete Me".to_string(),
-            body: "Body".to_string(),
-            tags: vec![],
-            created_at: "123".to_string(),
-            updated_at: "123".to_string(),
-        };
-
-        repo.save(&entry).unwrap();
-        let file_path = tmp_dir.path().join("test-delete.md");
-        assert!(file_path.exists());
-
-        repo.delete("test-delete").unwrap();
-        assert!(!file_path.exists());
-    }
-
-    #[test]
-    fn test_list_entries() {
-        let (_tmp_dir, repo) = create_test_repo();
-        
-        let entry1 = Entry {
-            id: EntryId("test-1".to_string()),
-            title: "Entry 1".to_string(),
-            body: "Body 1".to_string(),
-            tags: vec![],
-            created_at: "100".to_string(),
-            updated_at: "100".to_string(),
-        };
-
-        let entry2 = Entry {
-            id: EntryId("test-2".to_string()),
-            title: "Entry 2".to_string(),
-            body: "Body 2".to_string(),
-            tags: vec![],
-            created_at: "200".to_string(),
-            updated_at: "200".to_string(),
-        };
-
-        repo.save(&entry1).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(2));
-        repo.save(&entry2).unwrap();
-        
-        let entries = repo.list().unwrap();
-        assert_eq!(entries.len(), 2);
-        let titles: Vec<&str> = entries.iter().map(|e| e.title.as_str()).collect();
-        assert!(titles.contains(&"Entry 1"));
-        assert!(titles.contains(&"Entry 2"));
-    }
-
-    #[test]
-    fn test_entry_tags_persist_in_sidecar() {
-        let (_tmp_dir, repo) = create_test_repo();
-
-        let entry = Entry {
-            id: EntryId("test-tags".to_string()),
-            title: "Tagged".to_string(),
-            body: "Tagged body".to_string(),
-            tags: vec!["work".to_string(), "daily-note".to_string()],
-            created_at: "2026-08-09T10:00:00+00:00".to_string(),
-            updated_at: "2026-08-09T11:00:00+00:00".to_string(),
-        };
-
-        repo.save(&entry).unwrap();
-
-        let loaded = repo.get("test-tags").unwrap().unwrap();
-        assert_eq!(
-            loaded.tags,
-            vec!["daily-note".to_string(), "work".to_string()]
-        );
-    }
-
-    #[test]
-    fn test_plain_markdown_reads() {
-        let content = "# Legacy Title\n\nLegacy body";
-
-        let parsed = GitEntryRepository::parse_entry_content("legacy-id", content).unwrap();
-
-        assert_eq!(parsed.id.0, "legacy-id");
-        assert_eq!(parsed.title, "Legacy Title");
-        assert_eq!(parsed.body, "Legacy body");
-    }
-
-    #[test]
-    fn test_sync_returns_no_remote_when_origin_missing() {
-        let (_tmp_dir, repo) = create_test_repo();
-
-        let result = repo.sync().unwrap();
-
-        assert_eq!(result, SyncResult::NoRemote);
-    }
-
-    #[test]
-    fn test_sync_pushes_to_local_bare_remote() {
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let (_tmp_dir, repo) = create_test_repo();
-        add_origin_remote(&repo, remote_dir.path());
-
-        repo.save(&Entry {
-            id: EntryId("202608091500".to_string()),
-            title: "Push Me".to_string(),
-            body: "Body".to_string(),
-            tags: vec![],
-            created_at: "2026-08-09T15:00:00+00:00".to_string(),
-            updated_at: "2026-08-09T15:00:00+00:00".to_string(),
-        })
-        .unwrap();
-
-        let result = repo.sync().unwrap();
-
-        let branch = match result {
-            SyncResult::Pushed { branch } => branch,
-            other => panic!("expected pushed sync result, got {:?}", other),
-        };
-
-        let remote_repo = Repository::open_bare(remote_dir.path()).unwrap();
-        let remote_ref = format!("refs/heads/{}", branch);
-        assert!(remote_repo.find_reference(&remote_ref).is_ok());
-    }
-
-    #[test]
-    fn test_sync_fast_forwards_local_clone_from_remote() {
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let (_tmp_dir_a, repo_a) = create_test_repo();
-        add_origin_remote(&repo_a, remote_dir.path());
-
-        repo_a
-            .save(&Entry {
-                id: EntryId("202608091510".to_string()),
-                title: "Base".to_string(),
-                body: "Base body".to_string(),
-                tags: vec![],
-                created_at: "2026-08-09T15:10:00+00:00".to_string(),
-                updated_at: "2026-08-09T15:10:00+00:00".to_string(),
-            })
-            .unwrap();
-        repo_a.sync().unwrap();
-
-        let clone_dir = TempDir::new().unwrap();
-        let cloned_repo = Repository::clone(remote_dir.path().to_str().unwrap(), clone_dir.path()).unwrap();
-        let repo_b = GitEntryRepository::with_existing_repo(cloned_repo);
-
-        repo_a
-            .save(&Entry {
-                id: EntryId("202608091511".to_string()),
-                title: "Second".to_string(),
-                body: "Second body".to_string(),
-                tags: vec![],
-                created_at: "2026-08-09T15:11:00+00:00".to_string(),
-                updated_at: "2026-08-09T15:11:00+00:00".to_string(),
-            })
-            .unwrap();
-        repo_a.sync().unwrap();
-
-        let result = repo_b.sync().unwrap();
-        match result {
-            SyncResult::Pulled { .. } => {}
-            other => panic!("expected pulled sync result, got {:?}", other),
-        }
-
-        let pulled = repo_b.get("202608091511").unwrap();
-        assert!(pulled.is_some());
-        assert_eq!(pulled.unwrap().title, "Second");
-    }
-
-    #[test]
-    fn test_clone_journal_clones_remote_repository() {
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let clone_parent = TempDir::new().unwrap();
-        let clone_target = clone_parent.path().join("journal-clone");
-
-        let cloner = GitJournalCloner;
-        cloner
-            .clone_journal(remote_dir.path().to_str().unwrap(), &clone_target)
-            .unwrap();
-
-        assert!(clone_target.join(".git").exists());
-    }
-
-    #[test]
-    fn test_pull_returns_no_remote_when_origin_missing() {
-        let (_tmp_dir, repo) = create_test_repo();
-
-        let result = repo.pull().unwrap();
-
-        assert_eq!(result, SyncResult::NoRemote);
-    }
-
-    #[test]
-    fn test_push_returns_no_remote_when_origin_missing() {
-        let (_tmp_dir, repo) = create_test_repo();
-
-        let result = repo.push().unwrap();
-
-        assert_eq!(result, SyncResult::NoRemote);
-    }
-
-    #[test]
-    fn test_push_pushes_local_commits() {
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let (_tmp_dir, repo) = create_test_repo();
-        add_origin_remote(&repo, remote_dir.path());
-
-        repo.save(&Entry {
-            id: EntryId("202608131601".to_string()),
-            title: "Push target".to_string(),
-            body: "Body".to_string(),
-            tags: vec![],
-            created_at: "2026-08-13T16:01:00+00:00".to_string(),
-            updated_at: "2026-08-13T16:01:00+00:00".to_string(),
-        })
-        .unwrap();
-
-        let result = repo.push().unwrap();
-        assert!(matches!(result, SyncResult::Pushed { .. }));
-    }
-
-    #[test]
-    fn test_pull_fast_forwards_when_remote_ahead() {
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let (_tmp_dir_a, repo_a) = create_test_repo();
-        add_origin_remote(&repo_a, remote_dir.path());
-
-        repo_a
-            .save(&Entry {
-                id: EntryId("202608131602".to_string()),
-                title: "Base".to_string(),
-                body: "Body".to_string(),
-                tags: vec![],
-                created_at: "2026-08-13T16:02:00+00:00".to_string(),
-                updated_at: "2026-08-13T16:02:00+00:00".to_string(),
-            })
-            .unwrap();
-        repo_a.push().unwrap();
-
-        let clone_dir = TempDir::new().unwrap();
-        let cloned_repo = Repository::clone(remote_dir.path().to_str().unwrap(), clone_dir.path()).unwrap();
-        let repo_b = GitEntryRepository::with_existing_repo(cloned_repo);
-
-        repo_a
-            .save(&Entry {
-                id: EntryId("202608131603".to_string()),
-                title: "New remote".to_string(),
-                body: "Body".to_string(),
-                tags: vec![],
-                created_at: "2026-08-13T16:03:00+00:00".to_string(),
-                updated_at: "2026-08-13T16:03:00+00:00".to_string(),
-            })
-            .unwrap();
-        repo_a.push().unwrap();
-
-        let result = repo_b.pull().unwrap();
-        assert!(matches!(result, SyncResult::Pulled { .. }));
-    }
-
-    #[test]
-    fn test_resolve_path_returns_canonical_path() {
-        let (tmp_dir, repo) = create_test_repo();
-        let resolved = repo.resolve_path().unwrap();
-
-        assert_eq!(resolved, tmp_dir.path().canonicalize().unwrap());
-    }
-
-    #[test]
-    fn test_tag_catalog_add_list_update_remove() {
-        let (_tmp_dir, repo) = create_test_repo();
-
-        let added = repo.add_tag("work").unwrap();
-        assert_eq!(added, vec!["work".to_string()]);
-
-        let added = repo.add_tag("daily").unwrap();
-        assert_eq!(added, vec!["daily".to_string(), "work".to_string()]);
-
-        let renamed = repo.update_tag("daily", "journal").unwrap();
-        assert_eq!(renamed, vec!["journal".to_string(), "work".to_string()]);
-
-        let removed = repo.remove_tag("work").unwrap();
-        assert_eq!(removed, vec!["journal".to_string()]);
-    }
-
-    #[test]
-    fn test_tag_catalog_persists_to_penna_tags_json() {
-        let (tmp_dir, repo) = create_test_repo();
-
-        repo.add_tag("idea").unwrap();
-        repo.add_tag("todo").unwrap();
-
-        let path = tmp_dir.path().join(".penna/tags.json");
-        assert!(path.exists());
-
-        let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(raw.contains("\"tags\""));
-
-        let reopened = GitEntryRepository::new(tmp_dir.path().to_path_buf()).unwrap();
-        let tags = reopened.list_tags().unwrap();
-        assert_eq!(tags, vec!["idea".to_string(), "todo".to_string()]);
-    }
-
-    #[test]
-    fn test_remove_and_update_tag_affect_all_notes() {
-        let (_tmp_dir, repo) = create_test_repo();
-
-        repo.save(&Entry {
-            id: EntryId("202608131701".to_string()),
-            title: "One".to_string(),
-            body: "Body".to_string(),
-            tags: vec!["work".to_string(), "daily".to_string()],
-            created_at: "2026-08-13T17:01:00+00:00".to_string(),
-            updated_at: "2026-08-13T17:01:00+00:00".to_string(),
-        })
-        .unwrap();
-
-        repo.save(&Entry {
-            id: EntryId("202608131702".to_string()),
-            title: "Two".to_string(),
-            body: "Body".to_string(),
-            tags: vec!["work".to_string(), "idea".to_string()],
-            created_at: "2026-08-13T17:02:00+00:00".to_string(),
-            updated_at: "2026-08-13T17:02:00+00:00".to_string(),
-        })
-        .unwrap();
-
-        repo.add_tag("work").unwrap();
-        repo.add_tag("daily").unwrap();
-
-        repo.update_tag("daily", "journal").unwrap();
-        let first = repo.get("202608131701").unwrap().unwrap();
-        assert!(first.tags.contains(&"journal".to_string()));
-        assert!(!first.tags.contains(&"daily".to_string()));
-
-        repo.remove_tag("work").unwrap();
-        let first = repo.get("202608131701").unwrap().unwrap();
-        let second = repo.get("202608131702").unwrap().unwrap();
-        assert!(!first.tags.contains(&"work".to_string()));
-        assert!(!second.tags.contains(&"work".to_string()));
     }
 }

@@ -144,11 +144,11 @@ impl EngineMock {
             Err(_) => return Vec::new(),
         };
 
-        entries.sort_by(|a, b| a.id.cmp(&b.id));
+        entries.sort_by(|a, b| a.id.0.cmp(&b.id.0));
         entries
             .into_iter()
             .map(|entry| EntrySummary {
-                entry_id: Self::to_external_entry_id(&entry.id),
+                entry_id: Self::to_external_entry_id(&entry.id.0),
                 tags: Self::normalize_tags(&entry.tags),
             })
             .collect()
@@ -203,7 +203,7 @@ impl EngineMock {
             .flatten()?;
 
         Some(EntryRecord {
-            entry_id: Self::to_external_entry_id(&entry.id),
+            entry_id: Self::to_external_entry_id(&entry.id.0),
             content: Self::compose_markdown_content(&entry.title, &entry.body),
             tags: Self::normalize_tags(&entry.tags),
         })

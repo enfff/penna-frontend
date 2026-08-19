@@ -400,6 +400,62 @@ impl PennaEngine {
             .map_err(EngineError::Create)
     }
 
+    pub fn create_entry_with_id(
+        &self,
+        session_id: &str,
+        id: &str,
+        request: CreateEntryRequest,
+    ) -> Result<Entry, EngineError> {
+        let state = self.session(session_id)?;
+
+        if state.repo.get(id).map_err(EngineError::Repo)?.is_some() {
+            return Err(EngineError::IdCollision(id.to_string()));
+        }
+
+        let now = Local::now().to_rfc3339();
+        let use_case = CreateEntryUseCase::new(state.repo.clone());
+        use_case
+            .execute(CreateEntryInput {
+                id: id.to_string(),
+                title: request.title,
+                body: request.body,
+                tags: request.tags,
+                created_at: now.clone(),
+                updated_at: now,
+            })
+            .map_err(EngineError::Create)
+    }
+
+    pub fn restore_entry(
+        &self,
+        session_id: &str,
+        id: &str,
+        title: &str,
+        body: &str,
+        tags: &[String],
+        created_at: &str,
+    ) -> Result<Entry, EngineError> {
+        let state = self.session(session_id)?;
+
+        let created_at = if created_at.trim().is_empty() {
+            Local::now().to_rfc3339()
+        } else {
+            created_at.to_string()
+        };
+
+        let use_case = CreateEntryUseCase::new(state.repo.clone());
+        use_case
+            .execute(CreateEntryInput {
+                id: id.to_string(),
+                title: title.to_string(),
+                body: body.to_string(),
+                tags: tags.to_vec(),
+                created_at,
+                updated_at: Local::now().to_rfc3339(),
+            })
+            .map_err(EngineError::Create)
+    }
+
     pub fn create_entry_api(&self, request: CreateEntryApiRequest) -> Result<EntryDto, EngineError> {
         let entry = self.create_entry(
             &request.session_id,
@@ -508,7 +564,6 @@ impl PennaEngine {
     }
 
     fn next_available_entry_id(repo: &GitEntryRepository) -> Result<String, EngineError> {
-        // Required storage format: YYYYMMDDHHmm.md
         let mut candidate = Local::now();
         for _ in 0..(24 * 60) {
             let id = candidate.format("%Y%m%d%H%M").to_string();
