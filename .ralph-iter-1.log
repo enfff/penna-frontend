@@ -1,15 +1,22 @@
-Plan understood: first open task is **T4 (conflict parser)**. I'll create a new pure module `src/conflict.rs` with the `Normal | Current | Incoming` segment splitter plus the required unit tests, wire it into `main.rs`, and run the gate.
-Now fixing several off-by-one issues I spotted while tracing the tests against the parser:
-More corrections needed — recomputing every index map carefully:
-Now run the tests and the gate:
-The parser is right; several of my test expectations are stale (segment counts and incoming-side offsets). Reading the rest, then fixing all remaining assertions:
-All five failures are stale `len` assertions (block-only content yields exactly 2 segments) plus two offsets in `block_at_start_of_file`. Fixing:
-The `"before"` (no newline) case concatenates with the opener line, so it's correctly not a marker — the test should trim the trailing newline after the block instead:
-Gate green. Final test run, then bookkeeping:
-T4 done this iteration.
+Now I understand the codebase. T6 needs per-block accept actions. Let me check the shortcuts dialog and engine mock surface before writing code.
+All APIs verified. Now implementing T6. First, the pure resolution logic + tests in `conflict.rs`:
+Now the unit tests for resolution, appended to `conflict.rs`:
+Now wiring in `window.rs` — imports, constants, actions:
+Now add the two actions in `setup_actions`, after `toggle-viewer-mode`:
+Now the callback hooks and context-menu registration in `setup_callbacks`:
+Now the core methods, placed next to `apply_conflict_styling`:
+Now the accelerators in `application.rs` and shortcuts dialog entries:
+Now run the gate:
+Test helpers take `&str`; several tests pass `&content` where `content` is already `&str`. Fixing all 11 spots:
+Gate is green. Running the full test suite:
+Off-by-one: the end marker line itself belongs to the block. Fixing the range computation:
+My invariant test was wrong for multi-block files — resolving one block correctly leaves the other's markers. Rewriting it to assert the block count drops by exactly one:
+Gate green, 59 tests pass. Reviewing the final diff before updating the plan:
+Diff is clean (`.ralph-iter-1.log` is the loop script's own file, untouched by me). Marking T6 done and logging progress:
+**T6 complete — conflict accept actions.**
 
-- Added `src/conflict.rs`: `split_conflict_segments()` parses entry content into `ConflictSegment::Normal | Current | Incoming` runs with 0-based `start_line` offsets; marker lines are dropped from well-formed blocks but their positions are recoverable via the segment contract (`header = current.start_line - 1`, `sep = current.start + line_count`, `end = incoming.start + line_count`) — ready for T5/T6.
-- Strict git-shaped markers only: 7 chars at line start, optional space+label, lone `=======`; malformed blocks (missing separator, unclosed at EOF) demote to verbatim prose; indented/mid-line/wrong-length lookalikes stay Normal.
-- Wired `mod conflict;` in src/main.rs:23; module carries a temporary `#![allow(dead_code)]` to be removed once T5 consumes the API.
-- 16 new unit tests covering all task-required cases; full suite 39/39 green and gate (`env CARGO_HOME=.cargo cargo clippy --all-targets -- -D warnings`) exits clean.
-- Marked T4 `- [x]` in PLAN.md and appended the progress line.
+- `src/conflict.rs`: added pure `conflict_block_at_line` / `ConflictBlock::resolve` returning a line-range splice plan (losing side + all three marker lines deleted, surviving side verbatim), plus 13 unit tests covering multi-block, empty sides, EOF blocks, malformed prose, and hand-edit preservation.
+- `src/window.rs`: new `win.conflict-accept-current` / `-incoming` actions (enabled only while the caret is inside a well-formed block of an editable note); acceptance is a plain undoable buffer delete+insert, so GTK undo history stays intact and restyling re-parses via the existing `changed` hook. Also registered "Accept Current"/"Accept Incoming" via `TextView:extra-menu` so right-click in the editor offers them.
+- `src/application.rs`: accels `<Alt>c` / `<Alt>i`; `shortcuts-dialog.ui` documents them.
+
+Gate (`cargo clippy --all-targets -- -D warnings`) green; 59 tests pass. PLAN.md updated, progress.txt appended. Next up: T7 (save guard).

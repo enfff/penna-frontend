@@ -76,6 +76,18 @@
                 <property name="title" translatable="yes">Link</property>
               </object>
             </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="accelerator">&lt;Alt&gt;c</property>
+                <property name="title" translatable="yes">Accept current conflict side</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="accelerator">&lt;Alt&gt;i</property>
+                <property name="title" translatable="yes">Accept incoming conflict side</property>
+              </object>
+            </child>
           </object>
         </child>
       </object>

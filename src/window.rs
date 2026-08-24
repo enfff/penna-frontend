@@ -29,7 +29,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::conflict::{ConflictSpanKind, conflict_style_spans};
+use crate::conflict::{
+    ConflictBlock, ConflictSide, ConflictSpanKind, conflict_block_at_line, conflict_style_spans,
+};
 use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
@@ -64,6 +66,8 @@ const TAG_RULE: &str = "md-rule";
 const TAG_CONFLICT_CURRENT: &str = "conflict-current";
 const TAG_CONFLICT_INCOMING: &str = "conflict-incoming";
 const TAG_CONFLICT_MARKER: &str = "conflict-marker";
+const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
+const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
 const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 struct CheckboxItem {
@@ -353,6 +357,28 @@ impl PennaFrontendWindow {
         ));
         self.add_action(&toggle_viewer_mode);
 
+        let accept_current_conflict = gio::SimpleAction::new(ACTION_CONFLICT_ACCEPT_CURRENT, None);
+        accept_current_conflict.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.accept_conflict(ConflictSide::Current);
+            }
+        ));
+        accept_current_conflict.set_enabled(false);
+        self.add_action(&accept_current_conflict);
+
+        let accept_incoming_conflict = gio::SimpleAction::new(ACTION_CONFLICT_ACCEPT_INCOMING, None);
+        accept_incoming_conflict.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.accept_conflict(ConflictSide::Incoming);
+            }
+        ));
+        accept_incoming_conflict.set_enabled(false);
+        self.add_action(&accept_incoming_conflict);
+
         let wrap_bold = gio::SimpleAction::new("wrap-bold", None);
         wrap_bold.connect_activate(glib::clone!(
             #[weak(rename_to = window)]
@@ -565,6 +591,7 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 window.apply_markdown_styling();
+                window.update_conflict_actions();
                 window.queue_follow_editor_cursor();
             }
         ));
@@ -578,9 +605,18 @@ impl PennaFrontendWindow {
                     return;
                 }
 
+                window.update_conflict_actions();
                 window.queue_follow_editor_cursor();
             }
         ));
+
+        // Right-clicking anywhere in the note offers conflict resolution
+        // next to the usual editing entries; the actions enable only while
+        // the caret sits inside a well-formed block.
+        let conflict_menu = gio::Menu::new();
+        conflict_menu.append(Some("Accept Current"), Some("win.conflict-accept-current"));
+        conflict_menu.append(Some("Accept Incoming"), Some("win.conflict-accept-incoming"));
+        imp.editor_view.set_extra_menu(Some(&conflict_menu));
 
         imp.notes_search_entry.connect_search_changed(glib::clone!(
             #[weak(rename_to = window)]
@@ -2647,6 +2683,80 @@ impl PennaFrontendWindow {
                 }
             }
         }
+    }
+
+    /// Enables "Accept Current"/"Accept Incoming" exactly while the caret
+    /// sits inside a well-formed conflict block of an editable note.
+    fn update_conflict_actions(&self) {
+        let imp = self.imp();
+        let enabled = *imp.in_editor_view.borrow()
+            && !*imp.editor_viewer_mode.borrow()
+            && self.cursor_conflict_block().is_some();
+
+        for name in [
+            ACTION_CONFLICT_ACCEPT_CURRENT,
+            ACTION_CONFLICT_ACCEPT_INCOMING,
+        ] {
+            if let Some(action) = self
+                .lookup_action(name)
+                .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
+            {
+                action.set_enabled(enabled);
+            }
+        }
+    }
+
+    fn cursor_conflict_block(&self) -> Option<ConflictBlock> {
+        let imp = self.imp();
+        let buffer = imp.editor_view.buffer();
+        let (start, end) = buffer.bounds();
+        let text = buffer.text(&start, &end, true).to_string();
+        let line = usize::try_from(buffer.iter_at_mark(&buffer.get_insert()).line()).ok()?;
+        conflict_block_at_line(&text, line)
+    }
+
+    /// Resolves the block under the caret in favor of `side`: the losing
+    /// side's lines and all three marker lines are deleted and the
+    /// surviving side's text spliced back in, as a plain undoable edit so
+    /// hand-tuned content inside the block is what gets kept.
+    fn accept_conflict(&self, side: ConflictSide) {
+        let imp = self.imp();
+        if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let Some(block) = self.cursor_conflict_block() else {
+            return;
+        };
+        let resolution = block.resolve(side);
+
+        let buffer = imp.editor_view.buffer();
+        let Ok(start_line) = i32::try_from(resolution.start_line) else {
+            return;
+        };
+        let Some(mut delete_start) = buffer.iter_at_line(start_line) else {
+            return;
+        };
+        // A block ending on the last line has no following line to start
+        // from; deleting through the end iterator then covers it.
+        let mut delete_end = if resolution.end_line >= buffer.line_count().max(0) as usize {
+            buffer.end_iter()
+        } else {
+            buffer
+                .iter_at_line(resolution.end_line as i32)
+                .unwrap_or_else(|| buffer.end_iter())
+        };
+        buffer.delete(&mut delete_start, &mut delete_end);
+
+        if !resolution.replacement.is_empty() {
+            let mut insert_iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut insert_iter, &resolution.replacement);
+        }
+
+        imp.sync_status_label.set_label(match side {
+            ConflictSide::Current => "Accepted current changes",
+            ConflictSide::Incoming => "Accepted incoming changes",
+        });
     }
 
     fn parse_heading(line: &str) -> Option<(usize, usize)> {

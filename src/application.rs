@@ -93,6 +93,8 @@ mod imp {
             obj.set_accels_for_action("win.prefix-checklist", &["<control><shift>9"]);
             obj.set_accels_for_action("win.prefix-blockquote", &["<control><shift>period"]);
             obj.set_accels_for_action("win.wrap-code-block", &["<control><alt>e"]);
+            obj.set_accels_for_action("win.conflict-accept-current", &["<Alt>c"]);
+            obj.set_accels_for_action("win.conflict-accept-incoming", &["<Alt>i"]);
             obj.set_accels_for_action("win.zoom-in", &["<control>plus", "<control>equal", "<control>KP_Add"]);
             obj.set_accels_for_action("win.zoom-out", &["<control>minus", "<control>KP_Subtract"]);
         }

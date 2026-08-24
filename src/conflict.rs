@@ -222,6 +222,101 @@ fn marker_span(line: usize) -> ConflictSpan {
     }
 }
 
+/// Which side of a conflict block survives when the block is accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConflictSide {
+    /// The lines between `<<<<<<<` and `=======`.
+    Current,
+    /// The lines between `=======` and `>>>>>>>`.
+    Incoming,
+}
+
+/// The splice [`ConflictBlock::resolve`] proposes: delete every line of the
+/// block (all three marker lines plus both sides) and put the surviving
+/// side's verbatim text back in its place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConflictResolution {
+    /// First line of the block — the `<<<<<<<` header, inclusive.
+    pub(crate) start_line: usize,
+    /// End of the block — the line after `>>>>>>>`, exclusive.
+    pub(crate) end_line: usize,
+    /// Verbatim surviving-side text, including its trailing newline;
+    /// empty when that side had no lines.
+    pub(crate) replacement: String,
+}
+
+/// A well-formed conflict block located inside entry content.
+///
+/// Line numbers are 0-based and cover the whole block: the `<<<<<<<`
+/// header, both sides, `=======`, and `>>>>>>>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConflictBlock {
+    pub(crate) start_line: usize,
+    /// Exclusive.
+    pub(crate) end_line: usize,
+    pub(crate) current_text: String,
+    pub(crate) incoming_text: String,
+}
+
+impl ConflictBlock {
+    /// Plans the deletion of this whole block, keeping `side`'s lines.
+    ///
+    /// The losing side's lines and all three marker lines disappear; the
+    /// winning side's text is preserved byte-for-byte so hand edits made
+    /// inside the block survive acceptance.
+    pub(crate) fn resolve(&self, side: ConflictSide) -> ConflictResolution {
+        let replacement = match side {
+            ConflictSide::Current => self.current_text.clone(),
+            ConflictSide::Incoming => self.incoming_text.clone(),
+        };
+
+        ConflictResolution {
+            start_line: self.start_line,
+            end_line: self.end_line,
+            replacement,
+        }
+    }
+}
+
+/// Finds the well-formed conflict block containing 0-based `line`.
+///
+/// Every line of a block qualifies — markers included — so acting on the
+/// cursor wherever it sits inside the tinted region resolves that block.
+/// Plain prose and malformed marker lookalikes yield `None`.
+pub(crate) fn conflict_block_at_line(content: &str, line: usize) -> Option<ConflictBlock> {
+    let segments = split_conflict_segments(content);
+
+    for pair in segments.windows(2) {
+        if !matches!(
+            (&pair[0], &pair[1]),
+            (ConflictSegment::Current { .. }, ConflictSegment::Incoming { .. })
+        ) {
+            continue;
+        }
+
+        let current = &pair[0];
+        let incoming = &pair[1];
+
+        // The parser drops marker lines from segment texts, so the header
+        // sits directly above the current side and the end marker directly
+        // below the incoming side.
+        let start_line = current.start_line() - 1;
+        let end_line = incoming.start_line() + incoming.line_count() + 1;
+        if line < start_line || line >= end_line {
+            continue;
+        }
+
+        return Some(ConflictBlock {
+            start_line,
+            end_line,
+            current_text: current.text().to_string(),
+            incoming_text: incoming.text().to_string(),
+        });
+    }
+
+    None
+}
+
 fn is_start_marker(line: &str) -> bool {
     labelled_marker(marker_body(line), CONFLICT_START_MARKER)
 }
@@ -647,6 +742,232 @@ e
             for span in conflict_style_spans(&content) {
                 assert!(span.start_line < span.end_line);
                 assert!(span.end_line <= line_count, "content {content:?}");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod conflict_resolve_tests {
+    use super::*;
+
+    const BLOCK: &str = "\
+<<<<<<< HEAD
+mine
+=======
+theirs
+>>>>>>> topic
+";
+
+    /// Mirrors the buffer splice the editor performs: delete lines
+    /// `[start_line, end_line)` and insert the replacement at `start_line`.
+    fn apply_resolution(content: &str, resolution: &ConflictResolution) -> String {
+        let mut out = String::new();
+        for (number, line) in content.split_inclusive('\n').enumerate() {
+            if number == resolution.start_line {
+                out.push_str(&resolution.replacement);
+            }
+            if !(resolution.start_line..resolution.end_line).contains(&number) {
+                out.push_str(line);
+            }
+        }
+        out
+    }
+
+    fn block_at(content: &str, line: usize) -> ConflictBlock {
+        conflict_block_at_line(content, line)
+            .unwrap_or_else(|| panic!("line {line} should sit inside a block of {content:?}"))
+    }
+
+    #[test]
+    fn cursor_on_any_block_line_finds_the_block() {
+        let content = format!("pre\n{BLOCK}post\n");
+
+        for line in [1usize, 2, 3, 4, 5] {
+            let block = block_at(&content, line);
+            assert_eq!(block.start_line, 1, "line {line}");
+            assert_eq!(block.end_line, 6, "line {line}");
+            assert_eq!(block.current_text, "mine\n", "line {line}");
+            assert_eq!(block.incoming_text, "theirs\n", "line {line}");
+        }
+    }
+
+    #[test]
+    fn accept_current_keeps_only_current_side() {
+        let content = format!("pre\n{BLOCK}post\n");
+        let resolved = block_at(&content, 2).resolve(ConflictSide::Current);
+
+        assert_eq!(resolved.replacement, "mine\n");
+        assert_eq!(apply_resolution(&content, &resolved), "pre\nmine\npost\n");
+    }
+
+    #[test]
+    fn accept_incoming_keeps_only_incoming_side() {
+        let content = format!("pre\n{BLOCK}post\n");
+        let resolved = block_at(&content, 4).resolve(ConflictSide::Incoming);
+
+        assert_eq!(resolved.replacement, "theirs\n");
+        assert_eq!(apply_resolution(&content, &resolved), "pre\ntheirs\npost\n");
+    }
+
+    #[test]
+    fn lines_outside_blocks_do_not_resolve() {
+        let content = format!("pre\n{BLOCK}post\n");
+
+        for line in [0usize, 6] {
+            assert!(
+                conflict_block_at_line(&content, line).is_none(),
+                "line {line}"
+            );
+        }
+        assert!(conflict_block_at_line(&content, 7).is_none());
+    }
+
+    #[test]
+    fn only_the_targeted_block_changes() {
+        let content = format!("{BLOCK}{BLOCK}");
+        let resolved = block_at(&content, 7).resolve(ConflictSide::Incoming);
+
+        assert_eq!(resolved.start_line, 5);
+        assert_eq!(resolved.end_line, 10);
+        assert_eq!(
+            apply_resolution(&content, &resolved),
+            format!("{BLOCK}theirs\n")
+        );
+    }
+
+    #[test]
+    fn adjacent_blocks_resolve_independently() {
+        let content = format!("{BLOCK}{BLOCK}");
+
+        let first = block_at(&content, 0).resolve(ConflictSide::Current);
+        assert_eq!(apply_resolution(&content, &first), format!("mine\n{BLOCK}"));
+
+        let second = block_at(&content, 9).resolve(ConflictSide::Current);
+        assert_eq!(apply_resolution(&content, &second), format!("{BLOCK}mine\n"));
+    }
+
+    #[test]
+    fn multiline_sides_survive_verbatim() {
+        let content = "\
+<<<<<<< HEAD
+a
+b
+
+c
+=======
+d
+e
+>>>>>>> topic
+";
+        let current = block_at(content, 3).resolve(ConflictSide::Current);
+        assert_eq!(current.replacement, "a\nb\n\nc\n");
+        assert_eq!(apply_resolution(content, &current), "a\nb\n\nc\n");
+
+        let incoming = block_at(content, 3).resolve(ConflictSide::Incoming);
+        assert_eq!(incoming.replacement, "d\ne\n");
+    }
+
+    #[test]
+    fn empty_side_acceptance_clears_the_block() {
+        let content = "<<<<<<< HEAD\n=======\n>>>>>>> topic\n";
+
+        for side in [ConflictSide::Current, ConflictSide::Incoming] {
+            let resolved = block_at(content, 1).resolve(side);
+            assert_eq!(resolved.replacement, "", "{side:?}");
+            assert_eq!(resolved.start_line, 0, "{side:?}");
+            assert_eq!(resolved.end_line, 3, "{side:?}");
+            assert_eq!(apply_resolution(content, &resolved), "", "{side:?}");
+        }
+    }
+
+    #[test]
+    fn empty_side_keeps_the_other_side() {
+        let content = "<<<<<<< HEAD\nkept\n=======\n>>>>>>> topic\n";
+        let resolved = block_at(content, 2).resolve(ConflictSide::Current);
+
+        assert_eq!(resolved.replacement, "kept\n");
+        assert_eq!(apply_resolution(content, &resolved), "kept\n");
+    }
+
+    #[test]
+    fn block_at_eof_without_trailing_newline_resolves() {
+        let content = "pre\n<<<<<<< H\na\n=======\nb\n>>>>>>> t";
+        let resolved = block_at(content, 5).resolve(ConflictSide::Current);
+
+        assert_eq!(resolved.start_line, 1);
+        assert_eq!(resolved.end_line, 6);
+        assert_eq!(apply_resolution(content, &resolved), "pre\na\n");
+    }
+
+    #[test]
+    fn malformed_and_plain_content_never_resolves() {
+        for content in [
+            "",
+            "just prose\n",
+            "<<<<<<< HEAD\nalpha\n>>>>>>> feature\n",
+            "intro\n<<<<<<< HEAD\nalpha\n=======\nbeta",
+            "a\n=======\n>>>>>>> nowhere\nb\n",
+            "see <<<<<<< demo below\n",
+            "  =======\n\t>>>>>>> note\n",
+        ] {
+            let lines = content.lines().count().max(1);
+            for line in 0..lines {
+                assert!(
+                    conflict_block_at_line(content, line).is_none(),
+                    "content {content:?} line {line}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hand_edits_inside_a_side_are_what_get_kept() {
+        // The user retyped "mine" as "MINE (fixed)" before accepting; that
+        // edited text — not some cached original — must survive.
+        let content = "<<<<<<< HEAD\nMINE (fixed)\n=======\ntheirs\n>>>>>>> topic\n";
+        let resolved = block_at(content, 1).resolve(ConflictSide::Current);
+
+        assert_eq!(resolved.replacement, "MINE (fixed)\n");
+        assert_eq!(apply_resolution(content, &resolved), "MINE (fixed)\n");
+    }
+
+    #[test]
+    fn resolutions_leave_no_conflict_markers_behind() {
+        fn well_formed_block_count(content: &str) -> usize {
+            split_conflict_segments(content)
+                .iter()
+                .filter(|segment| matches!(segment, ConflictSegment::Current { .. }))
+                .count()
+        }
+
+        for content in [
+            BLOCK.to_string(),
+            format!("pre\n{BLOCK}post\n"),
+            format!("{BLOCK}{BLOCK}tail\n"),
+            String::from("<<<<<<< HEAD\n=======\n>>>>>>> t"),
+        ] {
+            let blocks_before = well_formed_block_count(&content);
+            for line in 0..content.lines().count().max(1) {
+                if let Some(block) = conflict_block_at_line(&content, line) {
+                    for side in [ConflictSide::Current, ConflictSide::Incoming] {
+                        let resolved = apply_resolution(
+                            &content,
+                            &block.resolve(side),
+                        );
+                        assert_eq!(
+                            well_formed_block_count(&resolved),
+                            blocks_before - 1,
+                            "targeted block must disappear; {side:?} from line {line}"
+                        );
+                        if blocks_before == 1 {
+                            assert!(
+                                conflict_style_spans(&resolved).is_empty(),
+                                "residual markers in {resolved:?}"
+                            );
+                        }
+                    }
+                }
             }
         }
     }

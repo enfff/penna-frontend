@@ -15,7 +15,7 @@ only when the gate command passes for that task's work.
       `conflict-incoming`) with distinct tinted background colors applied to
       each side's line range; style the three marker lines dim. Rest of the
       buffer stays normally editable.
-- [ ] T6: Accept actions — per-conflict-block action (popover anchored to the
+- [x] T6: Accept actions — per-conflict-block action (popover anchored to the
       block header line, or keyboard shortcut) offering "Accept Current" and
       "Accept Incoming"; accepting deletes the losing side's lines AND its
       marker lines, then re-parses the buffer. Hand-editing inside blocks must
