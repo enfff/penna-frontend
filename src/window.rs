@@ -1203,6 +1203,9 @@ impl PennaFrontendWindow {
                 .note-row {{\
                     padding: 4px 2px;\
                 }}\
+                .note-row:focus, .note-row:focus:focus-visible {{\
+                    outline: none;\
+                }}\
                 .note-row.note-current {{\
                     border-radius: 10px;\
                     background-color: alpha(currentColor, 0.06);\
