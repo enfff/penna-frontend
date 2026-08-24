@@ -31,6 +31,7 @@ use std::time::Duration;
 
 use crate::conflict::{
     ConflictBlock, ConflictSide, ConflictSpanKind, conflict_block_at_line, conflict_style_spans,
+    unresolved_conflict_count,
 };
 use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind};
 
@@ -1856,6 +1857,18 @@ impl PennaFrontendWindow {
         let buffer = imp.editor_view.buffer();
         let (start, end) = buffer.bounds();
         let content = buffer.text(&start, &end, true).to_string();
+
+        // The editor reapplies the conflict tags from the same parser on
+        // every change, so counting parsed blocks is equivalent to scanning
+        // those tags — and refuses to save while any remain.
+        let unresolved = unresolved_conflict_count(&content);
+        if unresolved > 0 {
+            let toast = adw::Toast::new(&format!("{unresolved} unresolved conflicts"));
+            toast.set_priority(adw::ToastPriority::High);
+            imp.toast_overlay.add_toast(toast);
+            return;
+        }
+
         let tags = imp.current_entry_tags.borrow().clone();
 
         let save_result = {

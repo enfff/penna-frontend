@@ -20,7 +20,7 @@ only when the gate command passes for that task's work.
       "Accept Incoming"; accepting deletes the losing side's lines AND its
       marker lines, then re-parses the buffer. Hand-editing inside blocks must
       remain possible at all times.
-- [ ] T7: Save guard — Ctrl+S scans the buffer for remaining conflict tags;
+- [x] T7: Save guard — Ctrl+S scans the buffer for remaining conflict tags;
       if any exist, show a toast ("N unresolved conflicts") and refuse to
       save. A fully resolved note saves through `entry_save` unchanged.
 - [ ] T8: Sync surface — after a sync that reports failure/conflicts, detect

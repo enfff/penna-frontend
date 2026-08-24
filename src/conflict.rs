@@ -317,6 +317,19 @@ pub(crate) fn conflict_block_at_line(content: &str, line: usize) -> Option<Confl
     None
 }
 
+/// Counts the well-formed conflict blocks still unresolved in entry content.
+///
+/// Every well-formed block contributes exactly one `Current` segment, so
+/// counting those segments counts blocks even when sides are empty or two
+/// blocks sit back to back. The editor restyles conflict tags from this same
+/// parser on every buffer change, so this matches what the applied tags show.
+pub(crate) fn unresolved_conflict_count(content: &str) -> usize {
+    split_conflict_segments(content)
+        .iter()
+        .filter(|segment| matches!(segment, ConflictSegment::Current { .. }))
+        .count()
+}
+
 fn is_start_marker(line: &str) -> bool {
     labelled_marker(marker_body(line), CONFLICT_START_MARKER)
 }
@@ -969,6 +982,67 @@ e
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod save_guard_tests {
+    use super::*;
+
+    const BLOCK: &str = "\
+<<<<<<< HEAD
+mine
+=======
+theirs
+>>>>>>> topic
+";
+
+    #[test]
+    fn clean_content_has_zero_unresolved_conflicts() {
+        assert_eq!(unresolved_conflict_count(""), 0);
+        assert_eq!(unresolved_conflict_count("just prose\n"), 0);
+        // A lone separator line is ordinary markdown, not a conflict.
+        assert_eq!(unresolved_conflict_count("title\n=======\nbody\n"), 0);
+    }
+
+    #[test]
+    fn malformed_marker_lookalikes_do_not_block_saving() {
+        let missing_separator = "<<<<<<< HEAD\nmine\n>>>>>>> topic\n";
+        assert_eq!(unresolved_conflict_count(missing_separator), 0);
+
+        let unclosed = "<<<<<<< HEAD\nmine\n=======\n";
+        assert_eq!(unresolved_conflict_count(unclosed), 0);
+
+        let indented = "  <<<<<<< HEAD\nmine\n=======\ntheirs\n  >>>>>>> topic\n";
+        assert_eq!(unresolved_conflict_count(indented), 0);
+    }
+
+    #[test]
+    fn single_block_counts_once() {
+        assert_eq!(unresolved_conflict_count(BLOCK), 1);
+    }
+
+    #[test]
+    fn separated_blocks_each_count() {
+        let content = format!("pre\n{BLOCK}middle\n{BLOCK}post\n");
+        assert_eq!(unresolved_conflict_count(&content), 2);
+    }
+
+    #[test]
+    fn back_to_back_blocks_do_not_merge_into_one() {
+        let content = format!("{BLOCK}{BLOCK}");
+        assert_eq!(unresolved_conflict_count(&content), 2);
+    }
+
+    #[test]
+    fn empty_sides_still_count_as_unresolved() {
+        for content in [
+            "<<<<<<< HEAD\n=======\ntheirs\n>>>>>>> topic\n",
+            "<<<<<<< HEAD\nmine\n=======\n>>>>>>> topic\n",
+            "<<<<<<< HEAD\n=======\n>>>>>>> topic",
+        ] {
+            assert_eq!(unresolved_conflict_count(content), 1, "{content:?}");
         }
     }
 }
