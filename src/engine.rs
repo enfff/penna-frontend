@@ -66,6 +66,27 @@ pub struct JournalStatus {
     pub head_commit: String,
     pub dirty: bool,
     pub entry_count: usize,
+    /// True while MERGE_HEAD exists (ADR 0014): a sync merge is mid-flight.
+    pub merge_in_progress: bool,
+    /// Entry ids (.md form) whose index stages still conflict, empty
+    /// otherwise. Derived from the engine's repo-relative `conflicted_paths`.
+    pub conflicted_entry_ids: Vec<String>,
+}
+
+/// Result of one sync attempt, mirroring the engine's `SyncReport` with
+/// conflict ids converted to the frontend's external `.md` entry id form.
+///
+/// Statuses: `up_to_date`, `pulled`, `pushed`, `no_remote`, `no_branch`,
+/// `diverged` (merge started; `conflicted_entry_ids` lists what needs
+/// resolution). Per ADR 0014 a follow-up sync after the last resolution
+/// concludes the pending merge and reports `pulled`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyncOutcome {
+    pub status: String,
+    pub branch: Option<String>,
+    pub ahead: Option<usize>,
+    pub behind: Option<usize>,
+    pub conflicted_entry_ids: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -150,7 +171,40 @@ impl EngineMock {
             head_commit: status.head_commit.unwrap_or_default(),
             dirty: status.is_dirty,
             entry_count,
+            merge_in_progress: status.merge_in_progress,
+            conflicted_entry_ids: Self::conflicted_paths_to_entry_ids(&status.conflicted_paths),
         })
+    }
+
+    /// Fetch + push + merge through the engine. On divergence the engine
+    /// starts a real git merge (working tree receives conflict markers) and
+    /// reports the still-conflicted entries; once everything is resolved and
+    /// staged, this same call concludes the merge (ADR 0014).
+    pub fn sync_journal(&self, handle: JournalHandle) -> Result<SyncOutcome, String> {
+        let session = self
+            .sessions
+            .get(&handle.0)
+            .ok_or_else(|| "Journal handle not found".to_string())?;
+
+        let report = self
+            .engine
+            .sync_journal(&session.session_id)
+            .map_err(Self::format_engine_error)?;
+
+        Ok(SyncOutcome {
+            conflicted_entry_ids: Self::entry_ids_from_stems(&report.conflicts),
+            status: report.status,
+            branch: report.branch,
+            ahead: report.ahead,
+            behind: report.behind,
+        })
+    }
+
+    /// Entry ids with unresolved index conflicts per the latest status.
+    pub fn conflicted_entry_ids(&self, handle: JournalHandle) -> Vec<String> {
+        self.journal_status(handle)
+            .map(|status| status.conflicted_entry_ids)
+            .unwrap_or_default()
     }
 
     pub fn disconnect_journal(&mut self, handle: JournalHandle) -> bool {
@@ -471,6 +525,33 @@ impl EngineMock {
         }
     }
 
+    /// Converts engine conflict stems (bare `YYYYMMDDHHmm` ids) into the
+    /// external `.md` form, sorted and deduplicated.
+    fn entry_ids_from_stems(stems: &[String]) -> Vec<String> {
+        let mut ids: Vec<String> = stems
+            .iter()
+            .map(|stem| Self::to_external_entry_id(stem.trim()))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// Converts the engine's repo-relative conflicted paths (e.g.
+    /// `202601011200.md`, possibly nested) into external `.md` entry ids by
+    /// file name only; non-entry paths are ignored.
+    fn conflicted_paths_to_entry_ids(paths: &[String]) -> Vec<String> {
+        let mut ids: Vec<String> = paths
+            .iter()
+            .filter_map(|path| Path::new(path.trim()).file_name()?.to_str())
+            .filter(|name| name.ends_with(".md"))
+            .map(|name| name.to_string())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     fn normalize_tags(tags: &[String]) -> Vec<String> {
         let mut normalized = Vec::new();
 
@@ -751,5 +832,82 @@ mod entry_id_tests {
             assert_eq!(reexternalized, external);
             assert_eq!(EngineMock::to_internal_entry_id(&reexternalized), stem);
         }
+    }
+}
+
+#[cfg(test)]
+mod sync_surface_tests {
+    use super::*;
+
+    #[test]
+    fn conflicted_paths_flatten_to_entry_ids() {
+        let paths = vec![
+            "202601011200.md".to_string(),
+            "sub/dir/202601011201.md".to_string(),
+            "./202601011202.md".to_string(),
+        ];
+        assert_eq!(
+            EngineMock::conflicted_paths_to_entry_ids(&paths),
+            vec![
+                "202601011200.md".to_string(),
+                "202601011201.md".to_string(),
+                "202601011202.md".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn conflicted_paths_keep_md_names_and_skip_blank_paths() {
+        // Mapping is name-only: the engine scopes conflicted_paths to entry
+        // files mid-merge, but blank/malformed entries must not panic.
+        let paths = vec![
+            ".penna/catalog.json".to_string(),
+            "notes/202601011200.md".to_string(),
+            String::new(),
+        ];
+        assert_eq!(
+            EngineMock::conflicted_paths_to_entry_ids(&paths),
+            vec!["202601011200.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn conflicted_paths_sort_and_dedupe() {
+        let paths = vec![
+            "202601011201.md".to_string(),
+            "202601011200.md".to_string(),
+            "202601011201.md".to_string(),
+        ];
+        assert_eq!(
+            EngineMock::conflicted_paths_to_entry_ids(&paths),
+            vec![
+                "202601011200.md".to_string(),
+                "202601011201.md".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn conflict_stems_gain_extension_sorted_deduped() {
+        let stems = vec![
+            " 202601011201 ".to_string(),
+            "202601011200".to_string(),
+            "202601011201.md".to_string(),
+        ];
+        assert_eq!(
+            EngineMock::entry_ids_from_stems(&stems),
+            vec![
+                "202601011200.md".to_string(),
+                "202601011201.md".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn sync_without_connected_journal_errors_gracefully() {
+        let engine = EngineMock::default();
+        let err = engine.sync_journal(JournalHandle(99)).unwrap_err();
+        assert_eq!(err, "Journal handle not found");
+        assert!(engine.conflicted_entry_ids(JournalHandle(99)).is_empty());
     }
 }

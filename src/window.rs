@@ -19,7 +19,7 @@
  */
 
 use gtk::prelude::*;
-use adw::prelude::NavigationPageExt;
+use adw::prelude::{AdwDialogExt, NavigationPageExt};
 use adw::subclass::prelude::*;
 use gtk::{gdk, gio, glib};
 use gtk::pango;
@@ -33,7 +33,7 @@ use crate::conflict::{
     ConflictBlock, ConflictSide, ConflictSpanKind, conflict_block_at_line, conflict_style_spans,
     unresolved_conflict_count,
 };
-use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind};
+use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind, SyncOutcome};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
@@ -317,6 +317,16 @@ impl PennaFrontendWindow {
             }
         ));
         self.add_action(&delete_entry);
+
+        let sync_journal = gio::SimpleAction::new("sync-journal", None);
+        sync_journal.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.run_sync_flow();
+            }
+        ));
+        self.add_action(&sync_journal);
 
         let back_to_grid = gio::SimpleAction::new("back-to-grid", None);
         back_to_grid.connect_activate(glib::clone!(
@@ -1438,11 +1448,89 @@ impl PennaFrontendWindow {
                 self.start_repo_watchers();
                 self.show_main_page();
                 self.show_grid_view();
+
+                // Product flow: an already-connected session immediately
+                // runs the update flow; a fresh diary has nothing to sync.
+                if result.journal_kind == JournalKind::Existing {
+                    self.run_sync_flow();
+                }
             }
             Err(err) => {
                 imp.setup_status_label.set_label(&err);
                 imp.sync_status_label.set_label(&err);
             }
+        }
+    }
+
+    /// Update flow for an already-connected session: fetch/push/merge via the
+    /// engine's `sync_journal`, then surface whatever the merge produced.
+    fn run_sync_flow(&self) {
+        let imp = self.imp();
+        let Some(handle) = *imp.current_handle.borrow() else {
+            return;
+        };
+
+        let outcome = {
+            let engine = imp.engine.borrow();
+            engine.sync_journal(handle)
+        };
+
+        match outcome {
+            Ok(outcome) => self.handle_sync_outcome(&outcome),
+            Err(err) => {
+                imp.sync_status_label
+                    .set_label(&format!("Sync failed: {err}"));
+                let toast = adw::Toast::new(&format!("Sync failed: {err}"));
+                toast.set_priority(adw::ToastPriority::High);
+                imp.toast_overlay.add_toast(toast);
+            }
+        }
+    }
+
+    fn handle_sync_outcome(&self, outcome: &SyncOutcome) {
+        let imp = self.imp();
+        self.refresh_notes_grid();
+
+        let message = sync_status_message(outcome);
+        imp.sync_status_label.set_label(&message);
+
+        if !outcome.conflicted_entry_ids.is_empty() {
+            let count = outcome.conflicted_entry_ids.len();
+            let toast = adw::Toast::new(&sync_conflict_toast_message(count));
+            toast.set_priority(adw::ToastPriority::High);
+            imp.toast_overlay.add_toast(toast);
+        }
+    }
+
+    /// ADR 0014 conclude step: saving the last resolved note stages it and
+    /// clears its index conflict stages; when nothing conflicts anymore, one
+    /// follow-up sync creates the merge commit automatically.
+    fn maybe_conclude_merge(&self) {
+        let imp = self.imp();
+        let Some(handle) = *imp.current_handle.borrow() else {
+            return;
+        };
+
+        let merge_pending = imp
+            .engine
+            .borrow()
+            .journal_status(handle)
+            .is_some_and(|status| status.merge_in_progress);
+
+        if !merge_pending {
+            return;
+        }
+
+        let outcome = imp.engine.borrow().sync_journal(handle);
+        match outcome {
+            Ok(outcome) if outcome.conflicted_entry_ids.is_empty() => {
+                self.handle_sync_outcome(&outcome);
+                let toast = adw::Toast::new("All conflicts resolved — sync complete");
+                toast.set_priority(adw::ToastPriority::High);
+                imp.toast_overlay.add_toast(toast);
+            }
+            Ok(_) => {}
+            Err(err) => imp.sync_status_label.set_label(&format!("Sync failed: {err}")),
         }
     }
 
@@ -1461,6 +1549,13 @@ impl PennaFrontendWindow {
         let entries = {
             let engine = imp.engine.borrow();
             engine.list_entries(handle)
+        };
+
+        // Notes still conflicted mid-merge get a warning badge so unresolved
+        // sync state is visible without opening each note.
+        let conflicted_ids = {
+            let engine = imp.engine.borrow();
+            engine.conflicted_entry_ids(handle)
         };
 
         let mut first_visible_button: Option<gtk::Button> = None;
@@ -1524,6 +1619,13 @@ impl PennaFrontendWindow {
                 }
             }
             row_box.set_end_widget(Some(&tags_box));
+            if conflicted_ids.iter().any(|id| id == &entry.entry_id) {
+                let conflict_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+                conflict_icon.set_tooltip_text(Some("Unresolved sync conflict"));
+                conflict_icon.add_css_class("warning");
+                conflict_icon.set_margin_end(8);
+                row_box.set_center_widget(Some(&conflict_icon));
+            }
             button.set_child(Some(&row_box));
 
             let entry_id = entry.entry_id.clone();
@@ -1574,10 +1676,16 @@ impl PennaFrontendWindow {
         }
 
         if let Some(status) = imp.engine.borrow().journal_status(handle) {
-            let details = format!(
+            let mut details = format!(
                 "Branch: {} | head: {} | dirty: {} | entries: {}",
                 status.branch, status.head_commit, status.dirty, status.entry_count
             );
+            if status.merge_in_progress {
+                details.push_str(&format!(
+                    " | merge in progress: {} unresolved",
+                    status.conflicted_entry_ids.len()
+                ));
+            }
             imp.sync_status_label.set_label(&details);
         }
     }
@@ -1882,6 +1990,7 @@ impl PennaFrontendWindow {
                     .set_label("Saved via entry_save API");
                 self.refresh_notes_grid();
                 self.show_editor_view();
+                self.maybe_conclude_merge();
             }
             Err(err) => {
                 imp.sync_status_label.set_label(&err);
@@ -2306,23 +2415,40 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let dialog = gtk::Window::builder()
-            .transient_for(self)
-            .modal(true)
-            .title("Tags")
-            .resizable(true)
-            .build();
+        let dialog = adw::Dialog::new();
+        dialog.set_title("Tags");
+        dialog.set_content_width(400);
+        dialog.set_content_height(500);
+
+        const ADD_ROW_NAME: &str = "+add-tag";
+
+        let toolbar = adw::ToolbarView::new();
+        let header = adw::HeaderBar::new();
+        header.add_css_class("flat");
+        header.set_title_widget(Some(&adw::WindowTitle::new("Tags", "")));
+        toolbar.add_top_bar(&header);
 
         let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
         content.set_margin_top(12);
         content.set_margin_bottom(12);
         content.set_margin_start(12);
         content.set_margin_end(12);
-        dialog.set_child(Some(&content));
+        toolbar.set_content(Some(&content));
+        dialog.set_child(Some(&toolbar));
 
         let search_entry = gtk::SearchEntry::new();
-        search_entry.set_placeholder_text(Some("Type to filter or create tag"));
+        search_entry.set_placeholder_text(Some("Filter or create a tag"));
         content.append(&search_entry);
+
+        let chips_flow = gtk::FlowBox::new();
+        chips_flow.set_selection_mode(gtk::SelectionMode::None);
+        chips_flow.set_activate_on_single_click(false);
+        chips_flow.set_halign(gtk::Align::Start);
+        chips_flow.set_valign(gtk::Align::Start);
+        chips_flow.set_max_children_per_line(6);
+        chips_flow.set_column_spacing(6);
+        chips_flow.set_row_spacing(6);
+        content.append(&chips_flow);
 
         let scrolled = gtk::ScrolledWindow::new();
         scrolled.set_hscrollbar_policy(gtk::PolicyType::Never);
@@ -2330,14 +2456,28 @@ impl PennaFrontendWindow {
         scrolled.set_propagate_natural_height(true);
         scrolled.set_max_content_height(320);
         scrolled.set_min_content_height(180);
-        scrolled.set_max_content_width(360);
-        scrolled.set_min_content_width(320);
 
         let list_box = gtk::ListBox::new();
         list_box.add_css_class("boxed-list");
-        list_box.set_selection_mode(gtk::SelectionMode::Single);
+        list_box.set_selection_mode(gtk::SelectionMode::None);
         scrolled.set_child(Some(&list_box));
-        content.append(&scrolled);
+
+        let empty_page = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        empty_page.set_valign(gtk::Align::Center);
+        empty_page.set_halign(gtk::Align::Center);
+        let empty_title = gtk::Label::new(Some("No tags yet"));
+        empty_title.add_css_class("title-2");
+        let empty_hint = gtk::Label::new(Some("Type a name above to create your first tag."));
+        empty_hint.add_css_class("dim-label");
+        empty_hint.set_wrap(true);
+        empty_page.append(&empty_title);
+        empty_page.append(&empty_hint);
+
+        let pages = gtk::Stack::new();
+        pages.set_vexpand(true);
+        pages.add_named(&scrolled, Some("list"));
+        pages.add_named(&empty_page, Some("empty"));
+        content.append(&pages);
 
         let available_tags = Rc::new(RefCell::new({
             let engine = imp.engine.borrow();
@@ -2347,11 +2487,77 @@ impl PennaFrontendWindow {
         type RenderRowsHandle = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
         let render_rows_handle: RenderRowsHandle = Rc::new(RefCell::new(None));
 
+        let render_chips: Rc<dyn Fn()> = {
+            let chips_flow = chips_flow.clone();
+            let current_tags = current_tags.clone();
+            Rc::new(move || {
+                while let Some(child) = chips_flow.first_child() {
+                    chips_flow.remove(&child);
+                }
+                let mut tags = current_tags.borrow().clone();
+                tags.sort_unstable();
+                for tag in tags {
+                    chips_flow.append(&Self::build_tag_chip(&tag));
+                }
+            })
+        };
+
+        // Single path for every tag mutation: engine call, state sync, grid
+        // refresh, chip strip, and check-button echo. Handlers that fire from
+        // widgets must guard against echoes before calling this.
+        type ApplyTagFn = Rc<dyn Fn(&str, bool)>;
+        let apply_tag: ApplyTagFn = {
+            let list_box = list_box.clone();
+            let current_tags = current_tags.clone();
+            let render_chips = render_chips.clone();
+            Rc::new(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                #[strong]
+                entry_id,
+                move |tag: &str, attach: bool| {
+                    let result = {
+                        let mut engine = window.imp().engine.borrow_mut();
+                        if attach {
+                            engine.add_tag(handle, &entry_id, tag)
+                        } else {
+                            engine.remove_tag(handle, &entry_id, tag)
+                        }
+                    };
+
+                    if let Ok(tags) = result {
+                        *current_tags.borrow_mut() = tags.clone();
+                        *window.imp().current_entry_tags.borrow_mut() = tags;
+                        window.refresh_notes_grid();
+                        render_chips();
+
+                        let mut iter = list_box.first_child();
+                        while let Some(child) = iter {
+                            iter = child.next_sibling();
+                            if child.widget_name() != tag {
+                                continue;
+                            }
+                            if let Some(check) = child
+                                .downcast_ref::<gtk::ListBoxRow>()
+                                .and_then(|row| row.child())
+                                .and_then(|c| c.downcast::<gtk::Box>().ok())
+                                .and_then(|b| b.last_child())
+                                .and_then(|w| w.downcast::<gtk::CheckButton>().ok())
+                            {
+                                check.set_active(attach);
+                            }
+                        }
+                    }
+                }
+            ))
+        };
+
         let create_tag_from_search: Rc<dyn Fn()> = {
             let search_entry = search_entry.clone();
             let available_tags = available_tags.clone();
             let current_tags = current_tags.clone();
             let render_rows_handle = render_rows_handle.clone();
+            let render_chips = render_chips.clone();
             Rc::new(glib::clone!(
                 #[weak(rename_to = window)]
                 self,
@@ -2377,6 +2583,7 @@ impl PennaFrontendWindow {
                         *window.imp().current_entry_tags.borrow_mut() = tags;
                         search_entry.set_text("");
                         window.refresh_notes_grid();
+                        render_chips();
 
                         if let Some(render_rows) = render_rows_handle.borrow().as_ref() {
                             render_rows();
@@ -2386,71 +2593,118 @@ impl PennaFrontendWindow {
             ))
         };
 
+        // One activation path shared by click, Enter-on-row, and Space.
+        let activate_row: Rc<dyn Fn(&gtk::ListBoxRow)> = {
+            let current_tags = current_tags.clone();
+            let create_tag_from_search = create_tag_from_search.clone();
+            let apply_tag = apply_tag.clone();
+            Rc::new(move |row| {
+                let name = row.widget_name().to_string();
+                if name == ADD_ROW_NAME {
+                    create_tag_from_search();
+                    return;
+                }
+
+                let attached = current_tags.borrow().iter().any(|c| c == &name);
+                apply_tag(&name, !attached);
+            })
+        };
+
         let render_rows: Rc<dyn Fn()> = {
             let list_box = list_box.clone();
+            let pages = pages.clone();
             let search_entry = search_entry.clone();
             let available_tags = available_tags.clone();
             let current_tags = current_tags.clone();
-            let entry_id = entry_id.clone();
-            Rc::new(glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                move || {
+            let apply_tag = apply_tag.clone();
+            Rc::new(move || {
+                    // Remember the focused row across the rebuild so keyboard
+                    // navigation is not thrown back to the top on every filter
+                    // keystroke.
+                    let mut focused_tag: Option<String> = None;
+                    let mut iter = list_box.first_child();
+                    while let Some(child) = iter {
+                        iter = child.next_sibling();
+                        if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
+                            if row.has_focus() {
+                                focused_tag = Some(row.widget_name().to_string());
+                            }
+                        }
+                    }
+
                     while let Some(child) = list_box.first_child() {
                         list_box.remove(&child);
                     }
 
-                    let filter = search_entry.text().trim().to_lowercase();
-                    let mut tags = available_tags.borrow().clone();
-                    tags.sort_by_key(|tag| {
-                        let selected = current_tags.borrow().iter().any(|current| current == tag);
-                        (!selected, tag.to_lowercase())
-                    });
+                    let query = search_entry.text().trim().to_string();
+                    let lower_query = query.to_lowercase();
 
-                    for tag in tags {
-                        if !filter.is_empty() && !tag.to_lowercase().contains(&filter) {
+                    let mut tags = available_tags.borrow().clone();
+                    tags.sort_unstable();
+
+                    if !query.is_empty()
+                        && !tags.iter().any(|t| t.to_lowercase() == lower_query)
+                    {
+                        let row = gtk::ListBoxRow::new();
+                        row.set_widget_name(ADD_ROW_NAME);
+                        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                        row_box.set_margin_top(8);
+                        row_box.set_margin_bottom(8);
+                        row_box.set_margin_start(12);
+                        row_box.set_margin_end(12);
+
+                        let icon = gtk::Image::from_icon_name("list-add-symbolic");
+                        let label = gtk::Label::new(None);
+                        label.set_markup(&format!(
+                            "Add tag \u{201C}<b>{}</b>\u{201D}",
+                            glib::markup_escape_text(&query)
+                        ));
+                        label.set_halign(gtk::Align::Start);
+
+                        row_box.append(&icon);
+                        row_box.append(&label);
+                        row.set_child(Some(&row_box));
+                        list_box.append(&row);
+                    }
+
+                    for tag in &tags {
+                        if !lower_query.is_empty() && !tag.to_lowercase().contains(&lower_query)
+                        {
                             continue;
                         }
 
+                        let attached =
+                            current_tags.borrow().iter().any(|current| current == tag);
+
                         let row = gtk::ListBoxRow::new();
+                        row.set_widget_name(tag.as_str());
                         let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
                         row_box.set_margin_top(8);
                         row_box.set_margin_bottom(8);
                         row_box.set_margin_start(12);
                         row_box.set_margin_end(12);
 
-                        let label = gtk::Label::new(Some(&tag));
+                        let label = gtk::Label::new(Some(tag));
                         label.set_hexpand(true);
                         label.set_halign(gtk::Align::Start);
                         label.set_xalign(0.0);
+                        label.set_ellipsize(pango::EllipsizeMode::End);
 
                         let toggle = gtk::CheckButton::new();
-                        toggle.set_active(current_tags.borrow().iter().any(|current| current == &tag));
-
+                        toggle.set_active(attached);
                         toggle.connect_toggled(glib::clone!(
-                            #[weak(rename_to = window)]
-                            window,
                             #[strong]
                             current_tags,
                             #[strong]
-                            tag,
+                            apply_tag,
                             #[strong]
-                            entry_id,
+                            tag,
                             move |button| {
-                                let result = {
-                                    let mut engine = window.imp().engine.borrow_mut();
-                                    if button.is_active() {
-                                        engine.add_tag(handle, &entry_id, &tag)
-                                    } else {
-                                        engine.remove_tag(handle, &entry_id, &tag)
-                                    }
-                                };
-
-                                if let Ok(tags) = result {
-                                    *current_tags.borrow_mut() = tags.clone();
-                                    *window.imp().current_entry_tags.borrow_mut() = tags;
-                                    window.refresh_notes_grid();
+                                let attached_now = current_tags.borrow().contains(&tag);
+                                if attached_now == button.is_active() {
+                                    return; // programmatic echo, not a user action
                                 }
+                                apply_tag(&tag, button.is_active());
                             }
                         ));
 
@@ -2460,100 +2714,94 @@ impl PennaFrontendWindow {
                         list_box.append(&row);
                     }
 
-                    if let Some(first_row) = list_box.row_at_index(0) {
-                        list_box.select_row(Some(&first_row));
+                    let no_tags_at_all = tags.is_empty();
+                    pages.set_visible_child_name(if no_tags_at_all && query.is_empty() {
+                        "empty"
+                    } else {
+                        "list"
+                    });
+
+                    if let Some(name) = focused_tag {
+                        let mut iter = list_box.first_child();
+                        while let Some(child) = iter {
+                            iter = child.next_sibling();
+                            if child.widget_name() == name {
+                                if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
+                                    row.grab_focus();
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
-            ))
+            )
         };
 
-        let move_selected_row: Rc<dyn Fn(i32)> = {
-            let list_box = list_box.clone();
-            Rc::new(move |delta| {
-                let current_index = list_box.selected_row().map(|row| row.index()).unwrap_or(0);
-                let next_index = if delta < 0 {
-                    current_index.saturating_sub(1)
-                } else {
-                    current_index.saturating_add(1)
-                };
-
-                if let Some(next_row) = list_box.row_at_index(next_index) {
-                    list_box.select_row(Some(&next_row));
-                    next_row.grab_focus();
-                }
-            })
-        };
-
-        let toggle_selected_row: Rc<dyn Fn() -> bool> = {
-            let list_box = list_box.clone();
-            Rc::new(move || {
-                let Some(row) = list_box.selected_row() else {
-                    return false;
-                };
-                let Some(row_child) = row.child() else {
-                    return false;
-                };
-                let Ok(row_box) = row_child.downcast::<gtk::Box>() else {
-                    return false;
-                };
-                let Some(toggle_widget) = row_box.last_child() else {
-                    return false;
-                };
-                let Ok(toggle) = toggle_widget.downcast::<gtk::CheckButton>() else {
-                    return false;
-                };
-
-                toggle.set_active(!toggle.is_active());
-                true
-            })
-        };
-
-        let dialog_keys = gtk::EventControllerKey::new();
-        dialog_keys.connect_key_pressed(glib::clone!(
-            #[weak]
-            dialog,
-            #[upgrade_or]
-            glib::Propagation::Proceed,
-            move |_, keyval, _, _| {
-                if matches!(keyval, gdk::Key::Escape) {
-                    dialog.close();
-                    return glib::Propagation::Stop;
-                }
-
-                glib::Propagation::Proceed
+        // Click and Enter-on-row both arrive here; Space is routed manually
+        // below since ListBoxRow only binds Return to its activate signal.
+        list_box.connect_row_activated(glib::clone!(
+            #[strong]
+            activate_row,
+            move |_, row| {
+                activate_row(row);
             }
         ));
-        dialog.add_controller(dialog_keys);
 
         let search_keys = gtk::EventControllerKey::new();
         search_keys.connect_key_pressed(glib::clone!(
             #[strong]
-            move_selected_row,
+            list_box,
             #[strong]
-            toggle_selected_row,
+            search_entry,
+            #[strong]
+            available_tags,
+            #[strong]
+            activate_row,
             #[strong]
             create_tag_from_search,
             move |_, keyval, _, _| {
-                if matches!(keyval, gdk::Key::Up | gdk::Key::KP_Up) {
-                    move_selected_row(-1);
-                    return glib::Propagation::Stop;
-                }
-
-                if matches!(keyval, gdk::Key::Down | gdk::Key::KP_Down) {
-                    move_selected_row(1);
-                    return glib::Propagation::Stop;
-                }
-
-                if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space) && toggle_selected_row() {
+                if matches!(
+                    keyval,
+                    gdk::Key::Up | gdk::Key::KP_Up | gdk::Key::Down | gdk::Key::KP_Down
+                ) {
+                    if list_box.focus_child().is_none() {
+                        if let Some(first) = list_box.row_at_index(0) {
+                            first.grab_focus();
+                        }
+                    }
                     return glib::Propagation::Stop;
                 }
 
                 if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter) {
-                    if toggle_selected_row() {
-                        return glib::Propagation::Stop;
+                    let query = search_entry.text().trim().to_string();
+                    if query.is_empty() {
+                        return glib::Propagation::Proceed;
                     }
 
-                    create_tag_from_search();
+                    let exact = available_tags
+                        .borrow()
+                        .iter()
+                        .find(|tag| tag.to_lowercase() == query.to_lowercase())
+                        .cloned();
+
+                    match exact {
+                        Some(tag) => {
+                            let mut iter = list_box.first_child();
+                            while let Some(child) = iter {
+                                iter = child.next_sibling();
+                                if child.widget_name() == tag {
+                                    if let Some(row) =
+                                        child.downcast_ref::<gtk::ListBoxRow>()
+                                    {
+                                        activate_row(row);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        None => create_tag_from_search(),
+                    }
+
                     return glib::Propagation::Stop;
                 }
 
@@ -2565,13 +2813,17 @@ impl PennaFrontendWindow {
         let list_keys = gtk::EventControllerKey::new();
         list_keys.connect_key_pressed(glib::clone!(
             #[strong]
-            toggle_selected_row,
+            list_box,
+            #[strong]
+            activate_row,
             move |_, keyval, _, _| {
-                if (matches!(keyval, gdk::Key::space | gdk::Key::KP_Space)
-                    || matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter))
-                    && toggle_selected_row()
-                {
-                    return glib::Propagation::Stop;
+                if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space) {
+                    if let Some(row) =
+                        list_box.focus_child().and_downcast::<gtk::ListBoxRow>()
+                    {
+                        activate_row(&row);
+                        return glib::Propagation::Stop;
+                    }
                 }
 
                 glib::Propagation::Proceed
@@ -2597,8 +2849,9 @@ impl PennaFrontendWindow {
 
         *render_rows_handle.borrow_mut() = Some(render_rows.clone());
 
+        render_chips();
         render_rows();
-        dialog.present();
+        dialog.present(Some(self));
         search_entry.grab_focus();
     }
 
@@ -3082,6 +3335,104 @@ impl PennaFrontendWindow {
             imp.header_revealer
                 .set_reveal_child(pointer_y <= HEADER_REVEAL_HOVER_Y);
         }
+    }
+}
+
+/// User-facing one-liner for a sync outcome (status line + tests).
+fn sync_status_message(outcome: &SyncOutcome) -> String {
+    match outcome.status.as_str() {
+        "up_to_date" => "Journal up to date".to_string(),
+        "pulled" => "Journal updated from remote".to_string(),
+        "pushed" => "Journal pushed to remote".to_string(),
+        "no_remote" => "No remote configured for this journal".to_string(),
+        "no_branch" => "Journal has no branch yet".to_string(),
+        "diverged" if outcome.conflicted_entry_ids.is_empty() => {
+            "Journal diverged from remote".to_string()
+        }
+        "diverged" => format!(
+            "Merge started: {} note{} need{} conflict resolution",
+            outcome.conflicted_entry_ids.len(),
+            if outcome.conflicted_entry_ids.len() == 1 { "" } else { "s" },
+            if outcome.conflicted_entry_ids.len() == 1 { "s" } else { "" },
+        ),
+        other => format!("Sync state: {other}"),
+    }
+}
+
+fn sync_conflict_toast_message(count: usize) -> String {
+    if count == 1 {
+        "1 note needs conflict resolution".to_string()
+    } else {
+        format!("{count} notes need conflict resolution")
+    }
+}
+
+#[cfg(test)]
+mod sync_message_tests {
+    use super::*;
+
+    fn outcome(status: &str, conflicts: &[&str]) -> SyncOutcome {
+        SyncOutcome {
+            status: status.to_string(),
+            branch: Some("main".to_string()),
+            ahead: Some(1),
+            behind: Some(2),
+            conflicted_entry_ids: conflicts.iter().map(|id| id.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn messages_for_quiet_statuses() {
+        assert_eq!(sync_status_message(&outcome("up_to_date", &[])), "Journal up to date");
+        assert_eq!(
+            sync_status_message(&outcome("pulled", &[])),
+            "Journal updated from remote"
+        );
+        assert_eq!(
+            sync_status_message(&outcome("pushed", &[])),
+            "Journal pushed to remote"
+        );
+        assert_eq!(
+            sync_status_message(&outcome("no_remote", &[])),
+            "No remote configured for this journal"
+        );
+        assert_eq!(
+            sync_status_message(&outcome("no_branch", &[])),
+            "Journal has no branch yet"
+        );
+    }
+
+    #[test]
+    fn diverged_message_counts_conflicts_and_handles_zero() {
+        assert_eq!(
+            sync_status_message(&outcome("diverged", &[])),
+            "Journal diverged from remote"
+        );
+        assert_eq!(
+            sync_status_message(&outcome("diverged", &["202601011200.md"])),
+            "Merge started: 1 note needs conflict resolution"
+        );
+        assert_eq!(
+            sync_status_message(&outcome(
+                "diverged",
+                &["202601011200.md", "202601011201.md"]
+            )),
+            "Merge started: 2 notes need conflict resolution"
+        );
+    }
+
+    #[test]
+    fn unknown_status_falls_back_to_verbatim_report() {
+        assert_eq!(
+            sync_status_message(&outcome("reconciled", &[])),
+            "Sync state: reconciled"
+        );
+    }
+
+    #[test]
+    fn toast_message_pluralizes() {
+        assert_eq!(sync_conflict_toast_message(1), "1 note needs conflict resolution");
+        assert_eq!(sync_conflict_toast_message(3), "3 notes need conflict resolution");
     }
 }
 

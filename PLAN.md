@@ -5,6 +5,14 @@ only when the gate command passes for that task's work.
 
 ## Active
 
+- [x] T8: Sync surface — UNBLOCKED: engine tag v0.2.0 (commit 8a78b54,
+      includes 0401e10 "marker-based conflict state", ADR 0014) is now
+      published and satisfies all six contract expectations below. Bump the
+      Cargo.toml pin to v0.2.0, expose `merge_in_progress`/`conflicted_paths`
+      from `journal_status` plus a `sync_journal` boundary call, surface
+      conflicted notes in the UI (grid badge + toast + status line), trigger
+      the update flow when an existing journal connects, and let the
+      follow-up sync after the last resolution conclude the merge.
 - [x] T4: Conflict parser — pure function in `src/window.rs` (or a new module)
       that splits entry content into segments `Normal | Current | Incoming`
       based on standard git conflict markers (`<<<<<<<`, `=======`,
@@ -51,31 +59,6 @@ The frontend marker-based approach assumes:
 ## Blocked
 
 <!-- The agent moves tasks here with a one-line reason when stuck. -->
-
-- [ ] T8: Sync surface — engine tag v0.1.1 makes the marker flow impossible:
-      sync never starts a merge on divergence (returns `Diverged`, writes no
-      markers) and `get_entry` reads HEAD content, never the working tree, so
-      a marker scan via `list_entries`+`get_entry` can never find anything.
-      Findings (all vs pinned checkout de4f35f = tag v0.1.1):
-      1. On divergence `sync_with_mode` (adapters/git/src/git_repository.rs)
-         returns `SyncResult::Diverged{branch,ahead,behind}` — fetch +
-         ahead/behind only; no libgit2 merge, no MERGE_HEAD, no conflict
-         markers ever written. Repos stay cleanly diverged forever.
-      2. `EntryRepository::get` reads content from the HEAD commit
-         (`read_file_from_commit`), ignoring working-tree files entirely —
-         so even hand-written markers never surface through get_entry.
-      3. `save()` always commits with a single parent; no stage-only
-         mid-merge write mode.
-      4. No conclude path: no `continue_sync`; a follow-up `sync_journal`
-         just re-reports Diverged. "Follow-up sync completes the merge" is
-         untestable — there is nothing to complete.
-      5. `JournalStatus` lacks `merge_in_progress`/`conflicted_paths`.
-      => all six "Engine contract expectations" above are unmet by v0.1.1;
-         any badge/toast code would be dead, unfalsifiable UI.
-      Unblock: unreleased engine work implementing ADR 0014 exists in the
-      reference clone (vendor/penna @ v0.1.1-10-g69fa996, commit 0401e10,
-      workspace version 0.2.0). Once the engine team publishes a release tag
-      containing ADR 0014, bump the Cargo.toml pin and re-run T8 as written.
 
 ## Done
 
