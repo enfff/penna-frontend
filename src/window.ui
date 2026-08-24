@@ -12,7 +12,6 @@
       <object class="AdwToolbarView">
         <child type="top">
           <object class="GtkBox">
-            <property name="height-request">48</property>
             <property name="orientation">vertical</property>
             <child>
               <object class="GtkRevealer" id="header_revealer">

@@ -140,6 +140,7 @@ mod imp {
         pub last_entries_fingerprint: RefCell<Option<u64>>,
         pub in_editor_view: RefCell<bool>,
         pub in_notes_grid_view: RefCell<bool>,
+        pub grid_selected_entry_id: RefCell<Option<String>>,
         pub header_visibility_locked: RefCell<bool>,
         pub editor_css_provider: RefCell<Option<gtk::CssProvider>>,
         pub editor_font_size_pt: RefCell<i32>,
@@ -184,6 +185,7 @@ mod imp {
                 last_entries_fingerprint: RefCell::default(),
                 in_editor_view: RefCell::default(),
                 in_notes_grid_view: RefCell::default(),
+                grid_selected_entry_id: RefCell::default(),
                 header_visibility_locked: RefCell::default(),
                 editor_css_provider: RefCell::default(),
                 editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
@@ -662,6 +664,17 @@ impl PennaFrontendWindow {
         ));
         self.add_controller(motion);
 
+        // The edge-swipe gesture pops pages inside NavigationView itself,
+        // bypassing show_grid_view(). Resync app state (view flags, header,
+        // title, focus) whenever a page is popped by any means.
+        imp.content_view.connect_popped(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.show_grid_view();
+            }
+        ));
+
         let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
         scroll.connect_scroll(glib::clone!(
@@ -730,7 +743,7 @@ impl PennaFrontendWindow {
                 }
 
                 if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter) {
-                    if let Some(button) = window.focused_note_button() {
+                    if let Some(button) = window.selected_note_button() {
                         let entry_id = button.widget_name().to_string();
                         if !entry_id.is_empty() {
                             window.open_entry(&entry_id);
@@ -741,7 +754,7 @@ impl PennaFrontendWindow {
                 }
 
                 if matches!(keyval, gdk::Key::Delete | gdk::Key::KP_Delete) {
-                    if window.focused_note_button().is_some() {
+                    if window.selected_note_button().is_some() {
                         window.delete_current_entry();
                         return glib::Propagation::Stop;
                     }
@@ -1190,6 +1203,10 @@ impl PennaFrontendWindow {
                 .note-row {{\
                     padding: 4px 2px;\
                 }}\
+                .note-row.note-current {{\
+                    border-radius: 10px;\
+                    background-color: alpha(currentColor, 0.06);\
+                }}\
                 .note-tags {{\
                     min-width: 0;\
                 }}\
@@ -1457,6 +1474,7 @@ impl PennaFrontendWindow {
                 #[strong]
                 entry_id,
                 move |_| {
+                    window.select_note(Some(&entry_id));
                     window.open_entry(entry_id.as_str());
                 }
             ));
@@ -1470,6 +1488,25 @@ impl PennaFrontendWindow {
         // all. A search that matches nothing leaves the grid empty but does
         // not show the "create your first note" prompt.
         imp.notes_empty_state.set_visible(entries.is_empty());
+
+        // Keep highlighting a stable selection across refreshes; if the
+        // previously selected note is gone (deleted, filtered out), fall back
+        // to the first visible row so something is always selected.
+        let buttons = self.note_buttons();
+        let selected_still_visible = imp
+            .grid_selected_entry_id
+            .borrow()
+            .as_deref()
+            .is_some_and(|id| {
+                buttons
+                    .iter()
+                    .any(|button| button.widget_name() == id)
+            });
+        if !selected_still_visible {
+            *imp.grid_selected_entry_id.borrow_mut() =
+                buttons.first().map(|b| b.widget_name().to_string());
+        }
+        self.refresh_grid_selection();
 
         if query.is_empty() && *imp.in_notes_grid_view.borrow() {
             if let Some(button) = first_visible_button {
@@ -1514,8 +1551,35 @@ impl PennaFrontendWindow {
         out
     }
 
-    fn focused_note_button(&self) -> Option<gtk::Button> {
-        self.note_buttons().into_iter().find(|button| button.has_focus())
+    fn selected_note_button(&self) -> Option<gtk::Button> {
+        let selected = self.imp().grid_selected_entry_id.borrow().clone()?;
+        self.note_buttons()
+            .into_iter()
+            .find(|button| button.widget_name() == selected.as_str())
+    }
+
+    /// Marks `entry_id` as the grid's current selection and paints the
+    /// persistent highlight. Selection is independent of GTK keyboard-focus
+    /// visibility, so it is visible before any arrow key is pressed.
+    fn select_note(&self, entry_id: Option<&str>) {
+        *self
+            .imp()
+            .grid_selected_entry_id
+            .borrow_mut() = entry_id.map(str::to_string);
+        self.refresh_grid_selection();
+    }
+
+    fn refresh_grid_selection(&self) {
+        let selected = self.imp().grid_selected_entry_id.borrow().clone();
+        for button in self.note_buttons() {
+            let is_selected =
+                selected.as_deref() == Some(button.widget_name().as_str());
+            if is_selected {
+                button.add_css_class("note-current");
+            } else {
+                button.remove_css_class("note-current");
+            }
+        }
     }
 
     fn notes_grid_column_count(&self, total_buttons: usize, buttons: &[gtk::Button]) -> usize {
@@ -1548,9 +1612,16 @@ impl PennaFrontendWindow {
             return false;
         }
 
+        let selected_id = self
+            .imp()
+            .grid_selected_entry_id
+            .borrow()
+            .clone();
         let current = buttons
             .iter()
-            .position(|button| button.has_focus())
+            .position(|button| {
+                selected_id.as_deref() == Some(button.widget_name().as_str())
+            })
             .unwrap_or(0);
         let cols = self.notes_grid_column_count(buttons.len(), &buttons);
         let rows = buttons.len().div_ceil(cols);
@@ -1598,6 +1669,7 @@ impl PennaFrontendWindow {
 
         if let Some(target_idx) = target {
             if let Some(button) = buttons.get(target_idx) {
+                self.select_note(Some(&button.widget_name()));
                 button.grab_focus();
                 return true;
             }
@@ -1781,7 +1853,7 @@ impl PennaFrontendWindow {
             return;
         };
         let entry_id = if *imp.in_notes_grid_view.borrow() {
-            self.focused_note_button()
+            self.selected_note_button()
                 .map(|button| button.widget_name().to_string())
                 .or_else(|| imp.current_entry_id.borrow().clone())
         } else {
@@ -2774,6 +2846,13 @@ impl PennaFrontendWindow {
         imp.main_page.set_margin_end(MAIN_PAGE_MARGIN_NORMAL);
         imp.back_to_grid_button.set_visible(false);
         self.update_notes_search_reveal();
+
+        // Put focus on the selected row so arrow keys / Enter / Delete work
+        // immediately, no matter how we got back to the grid (button, Escape,
+        // or the NavigationView edge-swipe pop).
+        if let Some(button) = self.selected_note_button() {
+            button.grab_focus();
+        }
     }
 
     fn show_setup_page(&self) {
