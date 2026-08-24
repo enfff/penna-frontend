@@ -110,6 +110,10 @@ mod imp {
         #[template_child]
         pub notes_flowbox: TemplateChild<gtk::FlowBox>,
         #[template_child]
+        pub notes_empty_state: TemplateChild<gtk::Box>,
+        #[template_child]
+        pub notes_empty_button: TemplateChild<gtk::Button>,
+        #[template_child]
         pub editor_view: TemplateChild<gtk::TextView>,
         #[template_child]
         pub header_revealer: TemplateChild<gtk::Revealer>,
@@ -159,6 +163,8 @@ mod imp {
                 notes_search_revealer: TemplateChild::default(),
                 notes_search_entry: TemplateChild::default(),
                 notes_flowbox: TemplateChild::default(),
+                notes_empty_state: TemplateChild::default(),
+                notes_empty_button: TemplateChild::default(),
                 editor_view: TemplateChild::default(),
                 header_revealer: TemplateChild::default(),
                 app_header_bar: TemplateChild::default(),
@@ -515,6 +521,14 @@ impl PennaFrontendWindow {
             }
         ));
 
+        imp.notes_empty_button.connect_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                window.create_new_entry();
+            }
+        ));
+
         imp.back_to_grid_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
@@ -825,7 +839,7 @@ impl PennaFrontendWindow {
         let cursor_iter = buffer.iter_at_offset(cursor_offset);
         buffer.place_cursor(&cursor_iter);
 
-        let mut scroll_iter = cursor_iter.clone();
+        let mut scroll_iter = cursor_iter;
         imp.editor_view.scroll_to_iter(&mut scroll_iter, 0.1, false, 0.0, 0.0);
     }
 
@@ -1442,6 +1456,11 @@ impl PennaFrontendWindow {
             }
             imp.notes_flowbox.insert(&button, -1);
         }
+
+        // Show the inviting empty state only when the journal has no notes at
+        // all. A search that matches nothing leaves the grid empty but does
+        // not show the "create your first note" prompt.
+        imp.notes_empty_state.set_visible(entries.is_empty());
 
         if query.is_empty() && *imp.in_notes_grid_view.borrow() {
             if let Some(button) = first_visible_button {
@@ -2083,7 +2102,7 @@ impl PennaFrontendWindow {
         let title = entry_id
             .map(Self::format_entry_date)
             .filter(|text| !text.is_empty())
-            .map(|text| format!("{text}"))
+            .map(|text| text.to_string())
             .unwrap_or_else(|| WINDOW_TITLE_BASE.to_string());
 
         self.set_title(Some(&title));
@@ -2174,7 +2193,8 @@ impl PennaFrontendWindow {
             engine.list_tags(handle)
         }));
         let current_tags = Rc::new(RefCell::new(imp.current_entry_tags.borrow().clone()));
-        let render_rows_handle: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        type RenderRowsHandle = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
+        let render_rows_handle: RenderRowsHandle = Rc::new(RefCell::new(None));
 
         let create_tag_from_search: Rc<dyn Fn()> = {
             let search_entry = search_entry.clone();
@@ -2373,10 +2393,8 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Stop;
                 }
 
-                if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space) {
-                    if toggle_selected_row() {
-                        return glib::Propagation::Stop;
-                    }
+                if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space) && toggle_selected_row() {
+                    return glib::Propagation::Stop;
                 }
 
                 if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter) {
@@ -2398,12 +2416,11 @@ impl PennaFrontendWindow {
             #[strong]
             toggle_selected_row,
             move |_, keyval, _, _| {
-                if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space)
-                    || matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter)
+                if (matches!(keyval, gdk::Key::space | gdk::Key::KP_Space)
+                    || matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter))
+                    && toggle_selected_row()
                 {
-                    if toggle_selected_row() {
-                        return glib::Propagation::Stop;
-                    }
+                    return glib::Propagation::Stop;
                 }
 
                 glib::Propagation::Proceed

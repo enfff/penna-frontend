@@ -159,25 +159,70 @@
                         <property name="hscrollbar-policy">never</property>
                         <property name="min-content-width">140</property>
                         <property name="child">
-                          <object class="AdwClamp">
-                            <property name="maximum-size">1080</property>
-                            <property name="tightening-threshold">560</property>
-                            <property name="child">
-                              <object class="GtkFlowBox" id="notes_flowbox">
-                                <property name="valign">start</property>
-                                <property name="halign">fill</property>
-                                <property name="homogeneous">False</property>
-                                <property name="selection-mode">none</property>
-                                <property name="column-spacing">0</property>
-                                <property name="row-spacing">8</property>
-                                <property name="min-children-per-line">1</property>
-                                <property name="max-children-per-line">1</property>
-                                <property name="margin-top">8</property>
-                                <property name="margin-bottom">8</property>
-                                <property name="margin-start">8</property>
-                                <property name="margin-end">8</property>
+                          <object class="GtkBox">
+                            <property name="orientation">vertical</property>
+                            <child>
+                              <object class="GtkBox" id="notes_empty_state">
+                                <property name="orientation">vertical</property>
+                                <property name="spacing">12</property>
+                                <property name="valign">center</property>
+                                <property name="halign">center</property>
+                                <property name="vexpand">True</property>
+                                <property name="margin-top">24</property>
+                                <property name="margin-bottom">24</property>
+                                <property name="margin-start">24</property>
+                                <property name="margin-end">24</property>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label" translatable="yes">No notes yet</property>
+                                    <style>
+                                      <class name="title-2"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label" translatable="yes">Create your first note to start your journal.</property>
+                                    <property name="wrap">True</property>
+                                    <property name="max-width-chars">40</property>
+                                    <style>
+                                      <class name="dim-label"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton" id="notes_empty_button">
+                                    <property name="label" translatable="yes">New Note</property>
+                                    <property name="halign">center</property>
+                                    <style>
+                                      <class name="suggested-action"/>
+                                    </style>
+                                  </object>
+                                </child>
                               </object>
-                            </property>
+                            </child>
+                            <child>
+                              <object class="AdwClamp">
+                                <property name="maximum-size">1080</property>
+                                <property name="tightening-threshold">560</property>
+                                <property name="child">
+                                  <object class="GtkFlowBox" id="notes_flowbox">
+                                    <property name="valign">start</property>
+                                    <property name="halign">fill</property>
+                                    <property name="homogeneous">False</property>
+                                    <property name="selection-mode">none</property>
+                                    <property name="column-spacing">0</property>
+                                    <property name="row-spacing">8</property>
+                                    <property name="min-children-per-line">1</property>
+                                    <property name="max-children-per-line">1</property>
+                                    <property name="margin-top">8</property>
+                                    <property name="margin-bottom">8</property>
+                                    <property name="margin-start">8</property>
+                                    <property name="margin-end">8</property>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
                           </object>
                         </property>
                       </object>
