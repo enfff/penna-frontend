@@ -33,10 +33,22 @@ pub struct EntrySnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct JournalHandle(pub u64);
 
-#[derive(Clone, Copy, Debug)]
-pub enum SyncAction {
-    Downloaded,
-    Updated,
+/// Whether the connected folder was a brand-new diary or an existing journal.
+///
+/// A penna journal is, at its core, a git repository. The engine's
+/// `connect_journal` opens the repo if `<path>/.git` already exists and
+/// initializes a fresh one otherwise, so the presence of `.git` before we
+/// connect is the discriminator between the two cases.
+///
+/// Note: the `.penna/` sidecar directory is *not* a reliable marker — the
+/// engine creates it lazily (when the first tag is added), not at init — so
+/// a valid new diary has no `.penna/` until tags exist.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalKind {
+    /// No `.git` was present; the engine initialized a new diary.
+    New,
+    /// A git repository already existed; the engine connected to it.
+    Existing,
 }
 
 #[derive(Debug)]
@@ -44,7 +56,7 @@ pub struct ConnectResult {
     pub journal_handle: JournalHandle,
     pub capabilities: Vec<String>,
     pub current_branch: String,
-    pub sync_action: SyncAction,
+    pub journal_kind: JournalKind,
 }
 
 #[derive(Debug)]
@@ -77,7 +89,15 @@ impl EngineMock {
         }
 
         let repo = PathBuf::from(trimmed);
-        let had_git_repo = repo.join(".git").exists();
+        // A penna journal is a git repository. If `.git` is absent the engine
+        // will initialize a new diary; if present it connects to the existing
+        // one. (The `.penna/` sidecar is created lazily, so it is not used
+        // here as a discriminator.)
+        let journal_kind = if repo.join(".git").exists() {
+            JournalKind::Existing
+        } else {
+            JournalKind::New
+        };
 
         let session = self
             .engine
@@ -115,11 +135,7 @@ impl EngineMock {
                 "sidecar_integrity_status".to_string(),
             ],
             current_branch: status.branch.unwrap_or_else(|| "main".to_string()),
-            sync_action: if had_git_repo {
-                SyncAction::Updated
-            } else {
-                SyncAction::Downloaded
-            },
+            journal_kind,
         })
     }
 

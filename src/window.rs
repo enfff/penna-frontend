@@ -28,7 +28,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, SyncAction};
+use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
@@ -1322,9 +1322,9 @@ impl PennaFrontendWindow {
                 let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
                 let _ = settings.set_string(SETTINGS_REPOSITORY_PATH_KEY, &repo_path);
 
-                let sync_message = match result.sync_action {
-                    SyncAction::Downloaded => "Repository connected and downloaded",
-                    SyncAction::Updated => "Repository connected and updated",
+                let sync_message = match result.journal_kind {
+                    JournalKind::New => "New diary initialized and connected",
+                    JournalKind::Existing => "Existing journal connected",
                 };
 
                 let details = format!(
