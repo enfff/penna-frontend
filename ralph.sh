@@ -87,6 +87,12 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
 
   opencode run -m "$MODEL" "$(cat "$PROMPT")" | tee ".ralph-iter-$i.log" || true
 
+  if [[ ! -s ".ralph-iter-$i.log" ]] || grep -q "Error from provider" ".ralph-iter-$i.log"; then
+    echo "WARNING: iteration $i produced no agent output (provider error?) — retrying next pass" >&2
+    sleep 5
+    continue
+  fi
+
   if ! gate_ok; then
     echo "gate FAILED after iteration $i — next iteration should fix it" >&2
     continue
