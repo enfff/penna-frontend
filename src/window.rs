@@ -2068,12 +2068,12 @@ impl PennaFrontendWindow {
     }
 
     fn parse_entry_timestamp(entry_id: &str) -> Option<EntryTimestamp> {
-        let stem = entry_id.strip_suffix(".md").unwrap_or(entry_id);
-        if stem.len() < 12 {
+        let stem = entry_id.strip_suffix(".md")?;
+        if stem.len() != 12 || !stem.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
 
-        let timestamp = NaiveDateTime::parse_from_str(&stem[..12], "%Y%m%d%H%M").ok()?;
+        let timestamp = NaiveDateTime::parse_from_str(stem, "%Y%m%d%H%M").ok()?;
         Some(EntryTimestamp { value: timestamp })
     }
 
@@ -2806,5 +2806,80 @@ impl PennaFrontendWindow {
             imp.header_revealer
                 .set_reveal_child(pointer_y <= HEADER_REVEAL_HOVER_Y);
         }
+    }
+}
+
+#[cfg(test)]
+mod entry_id_tests {
+    use super::*;
+
+    const ENTRY_ID_STEM_FORMAT: &str = "%Y%m%d%H%M";
+
+    fn format_id(timestamp: NaiveDateTime) -> String {
+        format!("{}.md", timestamp.format(ENTRY_ID_STEM_FORMAT))
+    }
+
+    #[test]
+    fn round_trip_parse_format_parse() {
+        for id in [
+            "202608241542.md",
+            "202402291230.md",
+            "202501010000.md",
+            "199912312359.md",
+        ] {
+            let first = PennaFrontendWindow::parse_entry_timestamp(id)
+                .unwrap_or_else(|| panic!("{id} should parse"));
+            let formatted = format_id(first.value);
+            assert_eq!(formatted, id, "formatting should reproduce the id");
+
+            let second = PennaFrontendWindow::parse_entry_timestamp(&formatted)
+                .unwrap_or_else(|| panic!("canonical {formatted} should re-parse"));
+            assert_eq!(second.value, first.value, "re-parsing should be lossless");
+        }
+    }
+
+    #[test]
+    fn round_trip_from_arbitrary_timestamp() {
+        let timestamp = NaiveDateTime::parse_from_str("2017-05-03T07:09", "%Y-%m-%dT%H:%M").unwrap();
+        let id = format_id(timestamp);
+        assert_eq!(id, "201705030709.md");
+
+        let parsed = PennaFrontendWindow::parse_entry_timestamp(&id)
+            .unwrap_or_else(|| panic!("{id} should parse"));
+        assert_eq!(parsed.value, timestamp);
+        assert_eq!(format_id(parsed.value), id);
+    }
+
+    #[test]
+    fn rejects_wrong_length() {
+        assert!(PennaFrontendWindow::parse_entry_timestamp("20260824154.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("2026082415429.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp(".md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("").is_none());
+    }
+
+    #[test]
+    fn rejects_non_digits() {
+        assert!(PennaFrontendWindow::parse_entry_timestamp("2026O8241542.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("2026082A1542.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("abcdefabcdef.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("2026-82415-2.md").is_none());
+    }
+
+    #[test]
+    fn rejects_wrong_extension() {
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.txt").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.markdown").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.MD").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.md.md").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_calendar_values() {
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202602301542.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202613011542.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202601012542.md").is_none());
+        assert!(PennaFrontendWindow::parse_entry_timestamp("202402290000.md").is_some());
     }
 }

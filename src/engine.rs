@@ -572,3 +572,42 @@ impl EngineMock {
         Ok(hasher.finish())
     }
 }
+
+#[cfg(test)]
+mod entry_id_tests {
+    use super::*;
+
+    #[test]
+    fn internal_id_strips_extension_once() {
+        assert_eq!(
+            EngineMock::to_internal_entry_id("202402291230.md"),
+            "202402291230"
+        );
+        assert_eq!(EngineMock::to_internal_entry_id("202402291230"), "202402291230");
+    }
+
+    #[test]
+    fn external_id_appends_extension_once() {
+        assert_eq!(
+            EngineMock::to_external_entry_id("202402291230"),
+            "202402291230.md"
+        );
+        assert_eq!(
+            EngineMock::to_external_entry_id("202402291230.md"),
+            "202402291230.md"
+        );
+    }
+
+    #[test]
+    fn id_normalization_round_trips() {
+        for stem in ["202402291230", "202608240000", "199912312359"] {
+            let external = EngineMock::to_external_entry_id(stem);
+            assert_eq!(external, format!("{stem}.md"));
+            assert_eq!(EngineMock::to_internal_entry_id(&external), stem);
+
+            let reexternalized = EngineMock::to_external_entry_id(&external);
+            assert_eq!(reexternalized, external);
+            assert_eq!(EngineMock::to_internal_entry_id(&reexternalized), stem);
+        }
+    }
+}

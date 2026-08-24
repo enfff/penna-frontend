@@ -9,7 +9,7 @@ only when the gate command passes for that task's work.
       and `src/window.ui` (toast/undo timer feature) must build and pass
       `cargo clippy --all-targets -- -D warnings`. Finish or clean up whatever is
       half-wired so the tree is coherent.
-- [ ] T2: Add unit tests for entry-id parsing/formatting (`YYYYMMDDHHmm.md`)
+- [x] T2: Add unit tests for entry-id parsing/formatting (`YYYYMMDDHHmm.md`)
       round-trip: parse -> format -> parse equality, plus rejects (wrong length,
       non-digits, wrong extension). Pure logic only, no GTK fixtures needed.
 - [ ] T3: Add unit tests for note data parsing in `src/engine.rs`, covering the

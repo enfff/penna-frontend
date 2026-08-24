@@ -1,0 +1,12 @@
+Now I'll implement T2. First, tighten `parse_entry_timestamp` so the reject semantics (wrong length, non-digits, wrong extension) actually hold — currently it accepts over-long stems and any extension:
+Now append the test module to `window.rs`:
+Let me clean up a leftover helper in the test module:
+Now add the id-normalization tests to `engine.rs`:
+Gate passes. Now run the new unit tests:
+Expected failure — the id format has minute precision, so seconds are dropped. Fix the test to use a minute-precision timestamp:
+All green. Marking T2 done and logging progress:
+**T2 complete.**
+
+- Added `#[cfg(test)]` modules in `src/window.rs` (6 tests) and `src/engine.rs` (3 tests) covering entry-id parse → format → parse round-trips plus rejects for wrong length, non-digits, wrong/missing extension, and invalid calendar values (`src/window.rs:2812`, `src/engine.rs:577`).
+- Tightened `parse_entry_timestamp` (`src/window.rs:2070`) to strictly enforce `YYYYMMDDHHmm.md` — previously it accepted over-long stems, missing extensions, and any suffix; this matches the strict rule already used by `filesystem_fingerprint`.
+- Gate command passes clean; all 9 tests pass under `cargo test`. T3 remains active for the next iteration.
