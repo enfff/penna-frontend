@@ -239,6 +239,14 @@ impl PennaFrontendWindow {
 
     pub fn refresh_entry_datetime_format(&self) {
         self.refresh_notes_grid();
+
+        // The headerbar shows the formatted entry date only while an entry is
+        // open in the editor. On the notes grid the title stays "Journal", so
+        // format changes must not touch it.
+        if !*self.imp().in_editor_view.borrow() {
+            return;
+        }
+
         let entry_id = self.imp().current_entry_id.borrow().clone();
         self.update_window_title(entry_id.as_deref());
     }
