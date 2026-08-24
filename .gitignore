@@ -25,3 +25,7 @@
 vendor/
 
 *.txt
+
+# Ralph loop artifacts
+.ralph-iter-*.log
+progress.txt

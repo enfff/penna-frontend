@@ -6,12 +6,18 @@
 # checkpoint so a derailed pass can be reverted.
 #
 # Usage: ./ralph.sh [MAX_ITERS]
-# Env:   RALPH_AUTOCOMMIT=0   disable per-iteration checkpoint commits
+# Env:   RALPH_MODEL=<provider/model>  model for opencode run
+#                                     (default: opencode/x-preview-f-free)
+#        RALPH_AUTOCOMMIT=0   disable per-iteration checkpoint commits
+#        RALPH_BUMP=major|minor|patch  semver level for release on completion
+#                                     (default: patch)
+#        RALPH_RELEASE=0      disable version bump + tag on plan completion
 #        RALPH_ALLOW_DIRTY=1  start despite uncommitted changes (not recommended)
 
 set -uo pipefail
 
 MAX_ITERS="${1:-20}"
+MODEL="${RALPH_MODEL:-opencode/x-preview-f-free}"
 PLAN="PLAN.md"
 PROMPT="PROMPT.md"
 PROGRESS="progress.txt"
@@ -32,6 +38,45 @@ gate_ok() { "${GATE[@]}" >/dev/null 2>&1; }
 
 open_tasks() { grep -c '^- \[ \]' "$PLAN" 2>/dev/null || true; }
 
+release_bump() {
+  [[ "${RALPH_RELEASE:-1}" == "1" ]] || return 0
+
+  local level="${RALPH_BUMP:-patch}" current major minor patch next
+  current=$(sed -nE 's/^version = "(.*)"/\1/p' Cargo.toml | head -n1)
+  [[ "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    echo "cannot parse version from Cargo.toml: '$current'" >&2
+    return 1
+  }
+  IFS='.' read -r major minor patch <<<"$current"
+  case "$level" in
+    major) next="$((major + 1)).0.0" ;;
+    minor) next="$major.$((minor + 1)).0" ;;
+    patch) next="$major.$minor.$((patch + 1))" ;;
+    *) echo "bad RALPH_BUMP '$level' (major|minor|patch)" >&2; return 1 ;;
+  esac
+
+  if git rev-parse -q --verify "refs/tags/v$next" >/dev/null; then
+    echo "v$next already released — skipping bump"
+    return 0
+  fi
+
+  # Keep crate, meson (feeds config.rs/about dialog) and lockfile in sync.
+  sed -i "s/^version = \".*\"/version = \"$next\"/" Cargo.toml
+  sed -i "s/^\([[:space:]]*\)version: '.*',/\1version: '$next',/" meson.build
+  sed -i "/^name = \"penna-frontend\"$/{n;s/^version = \".*\"/version = \"$next\"/}" Cargo.lock
+
+  env CARGO_HOME=.cargo cargo clippy --all-targets -- -D warnings >/dev/null 2>&1 || {
+    echo "gate red after version bump — reverting" >&2
+    git checkout -- Cargo.toml meson.build Cargo.lock
+    return 1
+  }
+
+  git add Cargo.toml meson.build Cargo.lock
+  git commit -q -m "chore(release): v$next"
+  git tag "v$next"
+  echo "released v$next (push with: git push --follow-tags)"
+}
+
 for ((i = 1; i <= MAX_ITERS; i++)); do
   if (( $(open_tasks) == 0 )); then
     echo "no open tasks in $PLAN"
@@ -40,7 +85,7 @@ for ((i = 1; i <= MAX_ITERS; i++)); do
 
   echo "=== iteration $i/$MAX_ITERS ($(open_tasks) open) ==="
 
-  opencode run "$(cat "$PROMPT")" | tee ".ralph-iter-$i.log" || true
+  opencode run -m "$MODEL" "$(cat "$PROMPT")" | tee ".ralph-iter-$i.log" || true
 
   if ! gate_ok; then
     echo "gate FAILED after iteration $i — next iteration should fix it" >&2
@@ -64,4 +109,5 @@ if (( $(open_tasks) > 0 )); then
   exit 2
 fi
 
+release_bump
 echo "all done"
