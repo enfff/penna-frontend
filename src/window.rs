@@ -28,7 +28,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::engine::{EngineMock, JournalHandle, SyncAction};
+use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, SyncAction};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
@@ -121,6 +121,8 @@ mod imp {
         pub main_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub back_to_grid_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub toast_overlay: TemplateChild<adw::ToastOverlay>,
 
         pub engine: RefCell<EngineMock>,
         pub current_handle: RefCell<Option<JournalHandle>>,
@@ -136,6 +138,7 @@ mod imp {
         pub header_visibility_locked: RefCell<bool>,
         pub editor_css_provider: RefCell<Option<gtk::CssProvider>>,
         pub editor_font_size_pt: RefCell<i32>,
+        pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
     }
 
@@ -162,6 +165,7 @@ mod imp {
                 viewer_mode_button: TemplateChild::default(),
                 main_menu_button: TemplateChild::default(),
                 back_to_grid_button: TemplateChild::default(),
+                toast_overlay: TemplateChild::default(),
                 engine: RefCell::default(),
                 current_handle: RefCell::default(),
                 current_entry_id: RefCell::default(),
@@ -177,6 +181,7 @@ mod imp {
                 editor_css_provider: RefCell::default(),
                 editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
                 editor_viewer_mode: RefCell::default(),
+                last_undo_generation: RefCell::default(),
             }
         }
     }
@@ -266,6 +271,26 @@ impl PennaFrontendWindow {
             }
         ));
         self.add_action(&save);
+
+        let new_entry = gio::SimpleAction::new("new-entry", None);
+        new_entry.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.create_new_entry();
+            }
+        ));
+        self.add_action(&new_entry);
+
+        let delete_entry = gio::SimpleAction::new("delete-entry", None);
+        delete_entry.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.delete_current_entry();
+            }
+        ));
+        self.add_action(&delete_entry);
 
         let back_to_grid = gio::SimpleAction::new("back-to-grid", None);
         back_to_grid.connect_activate(glib::clone!(
@@ -688,6 +713,14 @@ impl PennaFrontendWindow {
                             window.open_entry(&entry_id);
                             return glib::Propagation::Stop;
                         }
+                    }
+                    return glib::Propagation::Proceed;
+                }
+
+                if matches!(keyval, gdk::Key::Delete | gdk::Key::KP_Delete) {
+                    if window.focused_note_button().is_some() {
+                        window.delete_current_entry();
+                        return glib::Propagation::Stop;
                     }
                     return glib::Propagation::Proceed;
                 }
@@ -1685,6 +1718,126 @@ impl PennaFrontendWindow {
         }
     }
 
+    fn create_new_entry(&self) {
+        let imp = self.imp();
+        let Some(handle) = *imp.current_handle.borrow() else {
+            return;
+        };
+
+        let record = {
+            let mut engine = imp.engine.borrow_mut();
+            match engine.create_entry_new(handle) {
+                Ok(record) => record,
+                Err(err) => {
+                    imp.sync_status_label.set_label(&err);
+                    return;
+                }
+            }
+        };
+
+        *imp.current_entry_id.borrow_mut() = Some(record.entry_id.clone());
+        *imp.current_entry_tags.borrow_mut() = record.tags.clone();
+        self.update_window_title(Some(&record.entry_id));
+        imp.editor_view.buffer().set_text(&record.content);
+        self.apply_editor_mode();
+        self.apply_markdown_styling();
+        self.show_editor_view();
+        self.refresh_notes_grid();
+    }
+
+    fn delete_current_entry(&self) {
+        let imp = self.imp();
+        let Some(handle) = *imp.current_handle.borrow() else {
+            imp.sync_status_label
+                .set_label("Connect repository before deleting");
+            return;
+        };
+        let entry_id = if *imp.in_notes_grid_view.borrow() {
+            self.focused_note_button()
+                .map(|button| button.widget_name().to_string())
+                .or_else(|| imp.current_entry_id.borrow().clone())
+        } else {
+            imp.current_entry_id.borrow().clone()
+        };
+
+        let Some(entry_id) = entry_id else {
+            imp.sync_status_label.set_label("No note selected");
+            return;
+        };
+
+        let snapshot = {
+            let mut engine = imp.engine.borrow_mut();
+            match engine.delete_entry_with_snapshot(handle, &entry_id) {
+                Ok(snapshot) => snapshot,
+                Err(err) => {
+                    imp.sync_status_label.set_label(&err);
+                    return;
+                }
+            }
+        };
+
+        *imp.current_entry_id.borrow_mut() = None;
+        imp.current_entry_tags.borrow_mut().clear();
+        self.show_grid_view();
+        self.refresh_notes_grid();
+        self.show_delete_undo_toast(snapshot, entry_id);
+    }
+
+    fn show_delete_undo_toast(&self, snapshot: EntrySnapshot, entry_id: String) {
+        let imp = self.imp();
+        if imp.current_handle.borrow().is_none() {
+            return;
+        }
+
+        let generation = *imp.last_undo_generation.borrow() + 1;
+        *imp.last_undo_generation.borrow_mut() = generation;
+
+        let toast = adw::Toast::new("Note deleted");
+        toast.set_button_label(Some("Undo"));
+        toast.set_timeout(5);
+        toast.set_priority(adw::ToastPriority::High);
+
+        toast.connect_button_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong] snapshot,
+            #[strong] entry_id,
+            #[strong] generation,
+            move |toast| {
+                let window_imp = window.imp();
+                if *window_imp.last_undo_generation.borrow() != generation {
+                    // A newer delete happened; this undo is stale.
+                    toast.dismiss();
+                    return;
+                }
+
+                let Some(handle) = *window_imp.current_handle.borrow() else {
+                    toast.dismiss();
+                    return;
+                };
+
+                let result = {
+                    let mut engine = window_imp.engine.borrow_mut();
+                    engine.restore_entry(handle, &snapshot)
+                };
+
+                match result {
+                    Ok(()) => {
+                        window_imp.sync_status_label.set_label("Note restored");
+                        window.refresh_notes_grid();
+                        window.open_entry(&entry_id);
+                    }
+                    Err(err) => {
+                        window_imp.sync_status_label.set_label(&err);
+                    }
+                }
+                toast.dismiss();
+            }
+        ));
+
+        imp.toast_overlay.add_toast(toast);
+    }
+
     fn choose_repo_folder(&self) {
         let dialog = gtk::FileDialog::builder()
             .title("Choose journal repository")
@@ -1877,7 +2030,23 @@ impl PennaFrontendWindow {
         };
 
         let fmt = Self::effective_entry_datetime_format();
-        timestamp.value.format(&fmt).to_string()
+        // `write_to` returns a Result instead of panicking: some valid format
+        // items (e.g. `%z`, timezone offset) parse fine but cannot be rendered
+        // for a `NaiveDateTime`, making chrono's `Display` return an error.
+        // Fall back to the default format so a bad persisted setting degrades
+        // to a normal date instead of crashing startup.
+        let mut buffer = String::new();
+        if timestamp.value.format(&fmt).write_to(&mut buffer).is_err() {
+            buffer.clear();
+            let _ = timestamp
+                .value
+                .format(ENTRY_DATETIME_FORMAT_DEFAULT)
+                .write_to(&mut buffer);
+        }
+        if buffer.is_empty() {
+            return entry_id.to_string();
+        }
+        buffer
     }
 
     fn parse_entry_timestamp(entry_id: &str) -> Option<EntryTimestamp> {

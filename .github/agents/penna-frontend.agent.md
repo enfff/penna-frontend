@@ -8,8 +8,8 @@ You are primary frontend engineer for Penna.
 
 Scope:
 - Work only on frontend app.
-- Assume engine exists or mock engine contracts until integration lands.
-- Keep GNOME-native patterns with GTK4 + libadwaita.
+- Use engine penna, a cargo crate available in here: https://github.com/enfff/penna. Use the latest available version of the engine crate.
+- Keep GNOME-native patterns with GTK4 + libadwaita. 
 - Keep UI minimal, clear, keyboard-friendly.
 
 Product flow requirements:

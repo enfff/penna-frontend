@@ -19,6 +19,17 @@ pub struct EntrySummary {
     pub tags: Vec<String>,
 }
 
+/// Full content snapshot of an entry, taken before deletion so the
+/// "Note deleted" toast can offer an undo that restores the original.
+#[derive(Clone, Debug)]
+pub struct EntrySnapshot {
+    pub entry_id: String,
+    pub title: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub created_at: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct JournalHandle(pub u64);
 
@@ -209,30 +220,31 @@ impl EngineMock {
         })
     }
 
-    pub fn create_entry(
-        &mut self,
-        handle: JournalHandle,
-        _entry_id: &str,
-        content: &str,
-        tags: &[String],
-    ) -> Result<(), String> {
+    /// Create a new entry; the engine assigns the next-free-minute id
+    /// (YYYYMMDDHHmm). Returns the created record so the caller can open it.
+    /// Blank title is intentional: engine v0.1.1 allows empty titles.
+    pub fn create_entry_new(&mut self, handle: JournalHandle) -> Result<EntryRecord, String> {
         let session = self
             .sessions
             .get(&handle.0)
             .ok_or_else(|| "Journal handle not found".to_string())?;
 
-        let (title, body) = Self::split_markdown_content(content);
         let request = CreateEntryRequest {
-            title,
-            body,
-            tags: Self::normalize_tags(tags),
+            title: String::new(),
+            body: String::new(),
+            tags: Vec::new(),
         };
 
-        self.engine
+        let entry = self
+            .engine
             .create_entry(&session.session_id, request)
             .map_err(Self::format_engine_error)?;
 
-        Ok(())
+        Ok(EntryRecord {
+            entry_id: Self::to_external_entry_id(&entry.id.0),
+            content: String::new(),
+            tags: Self::normalize_tags(&entry.tags),
+        })
     }
 
     pub fn update_entry(
@@ -283,6 +295,84 @@ impl EngineMock {
         self.engine
             .delete_entry(&session.session_id, &internal_id)
             .map_err(Self::format_engine_error)
+    }
+
+    /// Delete an entry, keeping a snapshot of its full content so the caller
+    /// can offer an undo that restores it.
+    pub fn delete_entry_with_snapshot(
+        &mut self,
+        handle: JournalHandle,
+        entry_id: &str,
+    ) -> Result<EntrySnapshot, String> {
+        let session = self
+            .sessions
+            .get(&handle.0)
+            .ok_or_else(|| "Journal handle not found".to_string())?;
+
+        let internal_id = Self::to_internal_entry_id(entry_id);
+
+        let entry = self
+            .engine
+            .get_entry(&session.session_id, &internal_id)
+            .map_err(Self::format_engine_error)?
+            .ok_or_else(|| "Entry not found".to_string())?;
+
+        let snapshot = EntrySnapshot {
+            entry_id: entry_id.to_string(),
+            title: entry.title.clone(),
+            body: entry.body.clone(),
+            tags: Self::normalize_tags(&entry.tags),
+            created_at: entry.created_at.clone(),
+        };
+
+        self.engine
+            .delete_entry(&session.session_id, &internal_id)
+            .map_err(Self::format_engine_error)?;
+
+        Ok(snapshot)
+    }
+
+    /// Re-create an entry from a snapshot taken by `delete_entry_with_snapshot`.
+    ///
+    /// Workaround: engine v0.1.1 has no `restore_entry`/`create_entry_with_id`
+    /// in its public API, so the restored note gets a fresh engine-assigned
+    /// minute id (content, tags, title identical; original id and
+    /// `created_at` are not preserved). TODO(engine-team): add
+    /// `create_entry_with_id` (id/title/body/tags/created_at/updated_at) so
+    /// undo restores the exact entry.
+    pub fn restore_entry(
+        &mut self,
+        handle: JournalHandle,
+        snapshot: &EntrySnapshot,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(&handle.0)
+            .ok_or_else(|| "Journal handle not found".to_string())?;
+
+        // If the entry reappeared (e.g. Undo pressed twice across a refresh),
+        // refuse to silently duplicate it.
+        let internal_id = Self::to_internal_entry_id(&snapshot.entry_id);
+        if self
+            .engine
+            .get_entry(&session.session_id, &internal_id)
+            .map_err(Self::format_engine_error)?
+            .is_some()
+        {
+            return Err("Entry already exists".to_string());
+        }
+
+        let request = CreateEntryRequest {
+            title: snapshot.title.clone(),
+            body: snapshot.body.clone(),
+            tags: Self::normalize_tags(&snapshot.tags),
+        };
+
+        self.engine
+            .create_entry(&session.session_id, request)
+            .map_err(Self::format_engine_error)?;
+
+        Ok(())
     }
 
     pub fn entry_save(

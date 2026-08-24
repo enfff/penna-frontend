@@ -908,7 +908,8 @@ dependencies = [
 
 [[package]]
 name = "penna-adapters-git"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/enfff/penna?tag=v0.1.1#de4f35fd0824fd90891bed9e055247b36108c8cd"
 dependencies = [
  "git2",
  "penna-core",
@@ -918,7 +919,8 @@ dependencies = [
 
 [[package]]
 name = "penna-core"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/enfff/penna?tag=v0.1.1#de4f35fd0824fd90891bed9e055247b36108c8cd"
 dependencies = [
  "serde",
  "serde_json",
@@ -926,7 +928,8 @@ dependencies = [
 
 [[package]]
 name = "penna-engine"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/enfff/penna?tag=v0.1.1#de4f35fd0824fd90891bed9e055247b36108c8cd"
 dependencies = [
  "chrono",
  "penna-adapters-git",

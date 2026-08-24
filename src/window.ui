@@ -7,6 +7,8 @@
     <property name="default-height">800</property>
     <property name="default-width">600</property>
     <property name="content">
+      <object class="AdwToastOverlay" id="toast_overlay">
+        <child>
       <object class="AdwToolbarView">
         <child type="top">
           <object class="GtkBox">
@@ -225,10 +227,22 @@
           </object>
         </property>
       </object>
+        </child>
+      </object>
     </property>
   </template>
 
   <menu id="primary_menu">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_New Note</attribute>
+        <attribute name="action">win.new-entry</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Delete Note</attribute>
+        <attribute name="action">win.delete-entry</attribute>
+      </item>
+    </section>
     <section>
       <item>
         <attribute name="label" translatable="yes">_Preferences</attribute>

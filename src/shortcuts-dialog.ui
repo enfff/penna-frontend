@@ -19,6 +19,12 @@
             </child>
             <child>
               <object class="GtkShortcutsShortcut">
+                <property name="accelerator">&lt;Control&gt;N</property>
+                <property name="title" translatable="yes">New note</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
                 <property name="accelerator">Escape</property>
                 <property name="title" translatable="yes">Back to grid</property>
               </object>

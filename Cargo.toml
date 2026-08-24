@@ -9,7 +9,7 @@ gtk = { version = "0.9", package = "gtk4", features = ["gnome_47"] }
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-penna-engine = { path = "vendor/penna/engine" }
+penna-engine = { git = "https://github.com/enfff/penna", tag = "v0.1.1" }
 
 [dependencies.adw]
 package = "libadwaita"

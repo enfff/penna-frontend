@@ -66,6 +66,7 @@ mod imp {
             obj.set_accels_for_action("win.edit-tags", &["<control>e"]);
             obj.set_accels_for_action("win.wrap-strikethrough", &["<control><shift>x"]);
             obj.set_accels_for_action("win.save", &["<control>s"]);
+            obj.set_accels_for_action("win.new-entry", &["<control>n"]);
             obj.set_accels_for_action("win.prefix-bullet-list", &["<control><shift>8"]);
             obj.set_accels_for_action("win.prefix-numbered-list", &["<control><shift>7"]);
             obj.set_accels_for_action("win.prefix-checklist", &["<control><shift>9"]);

@@ -31,7 +31,12 @@ run_command(
 cargo_bin  = find_program('cargo')
 cargo_opt  = [ '--manifest-path', meson.project_source_root() / 'Cargo.toml' ]
 cargo_opt += [ '--target-dir', meson.project_build_root()  / 'src' ]
-cargo_env  = [ 'CARGO_HOME=' + meson.project_build_root()  / 'cargo-home' ]
+# Project-local CARGO_HOME: the flatpak build container does not share
+# ~/.cargo, so a git dep on the private penna repo would fail to authenticate.
+# A cache seeded inside the project tree (via `cargo fetch` with the same
+# CARGO_HOME on the host) is visible to the sandbox build, so cargo reuses
+# the existing git checkout without cloning or needing credentials.
+cargo_env  = [ 'CARGO_HOME=' + meson.project_source_root() / '.cargo' ]
 
 if get_option('buildtype') == 'release'
   cargo_opt += [ '--release' ]
