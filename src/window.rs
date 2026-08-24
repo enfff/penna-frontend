@@ -19,6 +19,7 @@
  */
 
 use gtk::prelude::*;
+use adw::prelude::NavigationPageExt;
 use adw::subclass::prelude::*;
 use gtk::{gdk, gio, glib};
 use gtk::pango;
@@ -88,11 +89,11 @@ mod imp {
         #[template_child]
         pub main_page: TemplateChild<gtk::Box>,
         #[template_child]
-        pub content_stack: TemplateChild<gtk::Stack>,
+        pub content_view: TemplateChild<adw::NavigationView>,
         #[template_child]
-        pub notes_page: TemplateChild<gtk::ScrolledWindow>,
+        pub notes_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
-        pub editor_page: TemplateChild<gtk::Box>,
+        pub editor_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
         pub repo_path_entry: TemplateChild<gtk::Entry>,
         #[template_child]
@@ -152,7 +153,7 @@ mod imp {
                 app_stack: TemplateChild::default(),
                 setup_page: TemplateChild::default(),
                 main_page: TemplateChild::default(),
-                content_stack: TemplateChild::default(),
+                content_view: TemplateChild::default(),
                 notes_page: TemplateChild::default(),
                 editor_page: TemplateChild::default(),
                 repo_path_entry: TemplateChild::default(),
@@ -2746,6 +2747,12 @@ impl PennaFrontendWindow {
         buffer.apply_tag_by_name(tag_name, &start_iter, &end_iter);
     }
 
+    fn content_view_on_editor(view: &adw::NavigationView) -> bool {
+        view.visible_page()
+            .and_then(|page| page.tag())
+            .is_some_and(|tag| tag == "editor")
+    }
+
     fn show_grid_view(&self) {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
@@ -2753,7 +2760,11 @@ impl PennaFrontendWindow {
         self.set_editor_only_actions_enabled(false);
         imp.current_entry_tags.borrow_mut().clear();
         self.update_window_title(None);
-        imp.content_stack.set_visible_child(&*imp.notes_page);
+        let view = imp.content_view.get();
+        if Self::content_view_on_editor(&view) {
+            // Animated slide-back; the built-in edge-swipe gesture pops too.
+            view.pop();
+        }
         imp.app_header_bar.set_visible(true);
         imp.header_revealer.set_reveal_child(true);
         imp.main_page.set_spacing(8);
@@ -2791,7 +2802,10 @@ impl PennaFrontendWindow {
         *imp.in_editor_view.borrow_mut() = true;
         *imp.in_notes_grid_view.borrow_mut() = false;
         self.set_editor_only_actions_enabled(true);
-        imp.content_stack.set_visible_child(&*imp.editor_page);
+        let view = imp.content_view.get();
+        if !Self::content_view_on_editor(&view) {
+            view.push(&*imp.editor_page);
+        }
         imp.app_header_bar.set_visible(true);
         if *imp.header_visibility_locked.borrow() {
             imp.header_revealer.set_reveal_child(true);

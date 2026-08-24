@@ -85,7 +85,12 @@
                     </child>
                     <child>
                       <object class="GtkButton" id="choose_repo_button">
-                        <property name="label" translatable="yes">Choose Folder</property>
+                        <property name="child">
+                          <object class="AdwButtonContent">
+                            <property name="icon-name">folder-open-symbolic</property>
+                            <property name="label" translatable="yes">Choose Folder</property>
+                          </object>
+                        </property>
                       </object>
                     </child>
                   </object>
@@ -152,13 +157,17 @@
                   </object>
                 </child>
                 <child>
-                  <object class="GtkStack" id="content_stack">
+                  <object class="AdwNavigationView" id="content_view">
                     <property name="vexpand">True</property>
                     <child>
-                      <object class="GtkScrolledWindow" id="notes_page">
-                        <property name="hscrollbar-policy">never</property>
-                        <property name="min-content-width">140</property>
+                      <object class="AdwNavigationPage" id="notes_page">
+                        <property name="tag">notes</property>
+                        <property name="title" translatable="yes">Journal</property>
                         <property name="child">
+                          <object class="GtkScrolledWindow">
+                            <property name="hscrollbar-policy">never</property>
+                            <property name="min-content-width">140</property>
+                            <property name="child">
                           <object class="GtkBox">
                             <property name="orientation">vertical</property>
                             <child>
@@ -192,8 +201,13 @@
                                 </child>
                                 <child>
                                   <object class="GtkButton" id="notes_empty_button">
-                                    <property name="label" translatable="yes">New Note</property>
                                     <property name="halign">center</property>
+                                    <property name="child">
+                                      <object class="AdwButtonContent">
+                                        <property name="icon-name">document-new-symbolic</property>
+                                        <property name="label" translatable="yes">New Note</property>
+                                      </object>
+                                    </property>
                                     <style>
                                       <class name="suggested-action"/>
                                     </style>
@@ -225,12 +239,18 @@
                             </child>
                           </object>
                         </property>
+                          </object>
+                        </property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkBox" id="editor_page">
-                        <property name="orientation">vertical</property>
-                        <property name="spacing">0</property>
+                      <object class="AdwNavigationPage" id="editor_page">
+                        <property name="tag">editor</property>
+                        <property name="title" translatable="yes">Editor</property>
+                        <property name="child">
+                        <object class="GtkBox" id="editor_box">
+                          <property name="orientation">vertical</property>
+                          <property name="spacing">0</property>
                         <child>
                           <object class="GtkScrolledWindow">
                             <property name="hscrollbar-policy">never</property>
@@ -263,6 +283,8 @@
                             </property>
                           </object>
                         </child>
+                      </object>
+                        </property>
                       </object>
                     </child>
                   </object>
