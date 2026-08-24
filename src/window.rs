@@ -1799,10 +1799,10 @@ impl PennaFrontendWindow {
         imp.current_entry_tags.borrow_mut().clear();
         self.show_grid_view();
         self.refresh_notes_grid();
-        self.show_delete_undo_toast(snapshot, entry_id);
+        self.show_delete_undo_toast(snapshot);
     }
 
-    fn show_delete_undo_toast(&self, snapshot: EntrySnapshot, entry_id: String) {
+    fn show_delete_undo_toast(&self, snapshot: EntrySnapshot) {
         let imp = self.imp();
         if imp.current_handle.borrow().is_none() {
             return;
@@ -1820,7 +1820,6 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             #[strong] snapshot,
-            #[strong] entry_id,
             #[strong] generation,
             move |toast| {
                 let window_imp = window.imp();
@@ -1841,10 +1840,10 @@ impl PennaFrontendWindow {
                 };
 
                 match result {
-                    Ok(()) => {
+                    Ok(record) => {
                         window_imp.sync_status_label.set_label("Note restored");
                         window.refresh_notes_grid();
-                        window.open_entry(&entry_id);
+                        window.open_entry(&record.entry_id);
                     }
                     Err(err) => {
                         window_imp.sync_status_label.set_label(&err);

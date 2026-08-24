@@ -1,0 +1,12 @@
+The toast/undo work appears already committed and wired. Running the gate to verify coherence:
+Found a real coherence bug in the in-flight work: `restore_entry` re-creates the note under a fresh engine-assigned minute id, but the undo handler opens the stale original `entry_id`. Let me check `open_entry`/`create_new_entry` to mirror existing patterns:
+The fix mirrors the existing `create_new_entry` pattern. Making the engine return the restored record so undo opens the actual restored note:
+Now the window.rs undo handler:
+Gate green. Marking T1 done and logging progress:
+**T1 complete.** The toast/undo work was already committed but had one coherence bug: `restore_entry` re-creates the note under a fresh engine-assigned minute id (engine v0.1.1 limitation), yet the undo handler opened the stale original `entry_id`, which no longer exists.
+
+Fixes:
+- `src/engine.rs:346` — `restore_entry` now returns `Result<EntryRecord, String>` with the restored note's actual id (mirrors `create_entry_new`).
+- `src/window.rs:1805` — undo handler opens `record.entry_id` instead of the deleted id; dropped the now-unused `entry_id` param from `show_delete_undo_toast`.
+
+Gate (`cargo clippy --all-targets -- -D warnings`) passes clean. PLAN.md updated, progress.txt created.

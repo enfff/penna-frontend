@@ -348,14 +348,16 @@ impl EngineMock {
     /// Workaround: engine v0.1.1 has no `restore_entry`/`create_entry_with_id`
     /// in its public API, so the restored note gets a fresh engine-assigned
     /// minute id (content, tags, title identical; original id and
-    /// `created_at` are not preserved). TODO(engine-team): add
+    /// `created_at` are not preserved). Returns the created record so the
+    /// caller can open the restored note under its new id.
+    /// TODO(engine-team): add
     /// `create_entry_with_id` (id/title/body/tags/created_at/updated_at) so
     /// undo restores the exact entry.
     pub fn restore_entry(
         &mut self,
         handle: JournalHandle,
         snapshot: &EntrySnapshot,
-    ) -> Result<(), String> {
+    ) -> Result<EntryRecord, String> {
         let session = self
             .sessions
             .get(&handle.0)
@@ -379,11 +381,16 @@ impl EngineMock {
             tags: Self::normalize_tags(&snapshot.tags),
         };
 
-        self.engine
+        let entry = self
+            .engine
             .create_entry(&session.session_id, request)
             .map_err(Self::format_engine_error)?;
 
-        Ok(())
+        Ok(EntryRecord {
+            entry_id: Self::to_external_entry_id(&entry.id.0),
+            content: Self::compose_markdown_content(&entry.title, &entry.body),
+            tags: Self::normalize_tags(&entry.tags),
+        })
     }
 
     pub fn entry_save(

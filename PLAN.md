@@ -5,7 +5,7 @@ only when the gate command passes for that task's work.
 
 ## Active
 
-- [ ] T1: Stabilize in-flight work — the uncommitted changes in `src/window.rs`
+- [x] T1: Stabilize in-flight work — the uncommitted changes in `src/window.rs`
       and `src/window.ui` (toast/undo timer feature) must build and pass
       `cargo clippy --all-targets -- -D warnings`. Finish or clean up whatever is
       half-wired so the tree is coherent.
