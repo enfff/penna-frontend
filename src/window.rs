@@ -29,6 +29,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
+use crate::conflict::{ConflictSpanKind, conflict_style_spans};
 use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
@@ -60,6 +61,9 @@ const TAG_LIST_ITEM: &str = "md-list-item";
 const TAG_LINK: &str = "md-link";
 const TAG_CHECKED: &str = "md-checked";
 const TAG_RULE: &str = "md-rule";
+const TAG_CONFLICT_CURRENT: &str = "conflict-current";
+const TAG_CONFLICT_INCOMING: &str = "conflict-incoming";
+const TAG_CONFLICT_MARKER: &str = "conflict-marker";
 const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 struct CheckboxItem {
@@ -1315,6 +1319,21 @@ impl PennaFrontendWindow {
             .scale(0.85)
             .weight(700)
             .justification(gtk::Justification::Center)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_CONFLICT_CURRENT)
+            .background_rgba(&gdk::RGBA::new(0.30, 0.69, 0.31, 0.16))
+            .background_full_height(true)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_CONFLICT_INCOMING)
+            .background_rgba(&gdk::RGBA::new(0.16, 0.50, 0.85, 0.16))
+            .background_full_height(true)
+            .build());
+        add_tag(&gtk::TextTag::builder()
+            .name(TAG_CONFLICT_MARKER)
+            .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
+            .style(pango::Style::Italic)
             .build());
     }
 
@@ -2597,6 +2616,36 @@ impl PennaFrontendWindow {
 
             Self::apply_inline_markdown_tags(&buffer, line, line_start_offset);
             line_start_offset = line_end_offset + 1;
+        }
+
+        Self::apply_conflict_styling(&buffer, &text);
+    }
+
+    fn apply_conflict_styling(buffer: &gtk::TextBuffer, text: &str) {
+        let spans = conflict_style_spans(text);
+        if spans.is_empty() {
+            return;
+        }
+
+        let mut line_bounds: Vec<(usize, usize)> = Vec::new();
+        let mut position = 0usize;
+        for line in text.split_inclusive('\n') {
+            let width = line.chars().count();
+            line_bounds.push((position, position + width - line.trim_end_matches('\n').chars().count()));
+            position += width;
+        }
+
+        for span in spans {
+            let tag_name = match span.kind {
+                ConflictSpanKind::CurrentLines => TAG_CONFLICT_CURRENT,
+                ConflictSpanKind::IncomingLines => TAG_CONFLICT_INCOMING,
+                ConflictSpanKind::MarkerLine => TAG_CONFLICT_MARKER,
+            };
+            for line in span.start_line..span.end_line {
+                if let Some(&(start_offset, end_offset)) = line_bounds.get(line) {
+                    Self::apply_tag_by_offset(buffer, tag_name, start_offset, end_offset);
+                }
+            }
         }
     }
 

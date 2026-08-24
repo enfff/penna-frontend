@@ -11,7 +11,7 @@ only when the gate command passes for that task's work.
       `>>>>>>>`). Unit tests: single block, multiple blocks, block at
       start/end of file, missing `=======`, unclosed block, and prose that
       legitimately contains marker-like lines (require markers at line start).
-- [ ] T5: Conflict rendering — two new TextTags (`conflict-current`,
+- [x] T5: Conflict rendering — two new TextTags (`conflict-current`,
       `conflict-incoming`) with distinct tinted background colors applied to
       each side's line range; style the three marker lines dim. Rest of the
       buffer stays normally editable.

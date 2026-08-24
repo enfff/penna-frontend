@@ -154,6 +154,74 @@ pub(crate) fn split_conflict_segments(content: &str) -> Vec<ConflictSegment> {
     segments
 }
 
+/// What a styled line range produced by [`conflict_style_spans`] represents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConflictSpanKind {
+    /// Lines belonging to the current side of a conflict block.
+    CurrentLines,
+    /// Lines belonging to the incoming side of a conflict block.
+    IncomingLines,
+    /// One of the three marker lines (`<<<<<<<`, `=======`, `>>>>>>>`).
+    MarkerLine,
+}
+
+/// A half-open range of 0-based lines to style, derived from a parsed conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConflictSpan {
+    pub(crate) kind: ConflictSpanKind,
+    pub(crate) start_line: usize,
+    /// Exclusive.
+    pub(crate) end_line: usize,
+}
+
+/// Maps parsed conflict segments into styleable line ranges.
+///
+/// Every well-formed block yields one span per non-empty side plus three
+/// single-line marker spans; blocks the parser demoted to prose yield
+/// nothing, so hand-written marker lookalikes are never styled.
+pub(crate) fn conflict_style_spans(content: &str) -> Vec<ConflictSpan> {
+    let mut spans = Vec::new();
+
+    for segment in split_conflict_segments(content) {
+        let start = segment.start_line();
+        let end = start + segment.line_count();
+        match segment {
+            ConflictSegment::Normal { .. } => {}
+            ConflictSegment::Current { .. } => {
+                spans.push(marker_span(start - 1));
+                if end > start {
+                    spans.push(ConflictSpan {
+                        kind: ConflictSpanKind::CurrentLines,
+                        start_line: start,
+                        end_line: end,
+                    });
+                }
+                spans.push(marker_span(end));
+            }
+            ConflictSegment::Incoming { .. } => {
+                if end > start {
+                    spans.push(ConflictSpan {
+                        kind: ConflictSpanKind::IncomingLines,
+                        start_line: start,
+                        end_line: end,
+                    });
+                }
+                spans.push(marker_span(end));
+            }
+        }
+    }
+
+    spans
+}
+
+fn marker_span(line: usize) -> ConflictSpan {
+    ConflictSpan {
+        kind: ConflictSpanKind::MarkerLine,
+        start_line: line,
+        end_line: line + 1,
+    }
+}
+
 fn is_start_marker(line: &str) -> bool {
     labelled_marker(marker_body(line), CONFLICT_START_MARKER)
 }
@@ -445,5 +513,141 @@ y
             .collect::<Vec<_>>()
             .concat();
         assert_eq!(joined, malformed);
+    }
+}
+
+#[cfg(test)]
+mod conflict_span_tests {
+    use super::*;
+
+    const BLOCK: &str = "\
+<<<<<<< HEAD
+mine
+=======
+theirs
+>>>>>>> topic
+";
+
+    fn assert_side(span: &ConflictSpan, kind: ConflictSpanKind, start: usize, end: usize) {
+        assert_eq!(span.kind, kind);
+        assert_eq!(span.start_line, start);
+        assert_eq!(span.end_line, end);
+    }
+
+    fn assert_marker(span: &ConflictSpan, line: usize) {
+        assert_marker_range(span, line, line + 1);
+    }
+
+    fn assert_marker_range(span: &ConflictSpan, start: usize, end: usize) {
+        assert_eq!(span.kind, ConflictSpanKind::MarkerLine);
+        assert_eq!(span.start_line, start);
+        assert_eq!(span.end_line, end);
+    }
+
+    #[test]
+    fn single_block_yields_markers_and_both_sides() {
+        let content = format!("intro\n{BLOCK}outro\n");
+        let spans = conflict_style_spans(&content);
+
+        assert_eq!(spans.len(), 5);
+        assert_marker(&spans[0], 1);
+        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 2, 3);
+        assert_marker(&spans[2], 3);
+        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 4, 5);
+        assert_marker(&spans[4], 5);
+    }
+
+    #[test]
+    fn multiple_blocks_stay_in_document_order() {
+        let content = format!("{BLOCK}{BLOCK}tail\n");
+        let spans = conflict_style_spans(&content);
+
+        assert_eq!(spans.len(), 10);
+        assert_marker(&spans[0], 0);
+        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 1, 2);
+        assert_side(&spans[6], ConflictSpanKind::CurrentLines, 6, 7);
+        assert_marker(&spans[9], 9);
+        assert!(spans
+            .windows(2)
+            .all(|pair| pair[0].start_line <= pair[1].start_line));
+    }
+
+    #[test]
+    fn block_at_file_start_still_dims_header_marker() {
+        let content = format!("{BLOCK}after\n");
+        let spans = conflict_style_spans(&content);
+
+        assert_eq!(spans.len(), 5);
+        assert_marker(&spans[0], 0);
+        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 1, 2);
+        assert_marker(&spans[2], 2);
+        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 3, 4);
+        assert_marker(&spans[4], 4);
+    }
+
+    #[test]
+    fn empty_sides_produce_marker_spans_only() {
+        let content = "<<<<<<< HEAD\n=======\n>>>>>>> topic\n";
+        let spans = conflict_style_spans(content);
+
+        assert_eq!(spans.len(), 3);
+        assert!(spans
+            .iter()
+            .all(|span| span.kind == ConflictSpanKind::MarkerLine));
+        assert_marker(&spans[0], 0);
+        assert_marker(&spans[1], 1);
+        assert_marker(&spans[2], 2);
+    }
+
+    #[test]
+    fn multiline_sides_cover_their_whole_range() {
+        let content = "\
+<<<<<<< HEAD
+a
+b
+=======
+c
+d
+e
+>>>>>>> topic
+";
+        let spans = conflict_style_spans(content);
+
+        assert_eq!(spans.len(), 5);
+        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 1, 3);
+        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 4, 7);
+    }
+
+    #[test]
+    fn malformed_and_plain_content_yield_nothing() {
+        for content in [
+            "",
+            "just prose\n",
+            "<<<<<<< HEAD\nalpha\n>>>>>>> feature\n",
+            "intro\n<<<<<<< HEAD\nalpha\n=======\nbeta",
+            "a\n=======\n>>>>>>> nowhere\nb\n",
+            "see <<<<<<< demo below\n",
+        ] {
+            assert!(
+                conflict_style_spans(content).is_empty(),
+                "content {content:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn spans_never_escape_the_document() {
+        for content in [
+            BLOCK.to_string(),
+            format!("pre\n{BLOCK}post\n"),
+            String::from("<<<<<<< HEAD\n=======\n>>>>>>> t"),
+            String::from("x\n<<<<<<< H\n=======\n>>>>>>> t"),
+        ] {
+            let line_count = content.lines().count().max(1);
+            for span in conflict_style_spans(&content) {
+                assert!(span.start_line < span.end_line);
+                assert!(span.end_line <= line_count, "content {content:?}");
+            }
+        }
     }
 }
