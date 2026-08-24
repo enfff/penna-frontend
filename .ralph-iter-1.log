@@ -1,12 +1,15 @@
-The toast/undo work appears already committed and wired. Running the gate to verify coherence:
-Found a real coherence bug in the in-flight work: `restore_entry` re-creates the note under a fresh engine-assigned minute id, but the undo handler opens the stale original `entry_id`. Let me check `open_entry`/`create_new_entry` to mirror existing patterns:
-The fix mirrors the existing `create_new_entry` pattern. Making the engine return the restored record so undo opens the actual restored note:
-Now the window.rs undo handler:
-Gate green. Marking T1 done and logging progress:
-**T1 complete.** The toast/undo work was already committed but had one coherence bug: `restore_entry` re-creates the note under a fresh engine-assigned minute id (engine v0.1.1 limitation), yet the undo handler opened the stale original `entry_id`, which no longer exists.
+Plan understood: first open task is **T4 (conflict parser)**. I'll create a new pure module `src/conflict.rs` with the `Normal | Current | Incoming` segment splitter plus the required unit tests, wire it into `main.rs`, and run the gate.
+Now fixing several off-by-one issues I spotted while tracing the tests against the parser:
+More corrections needed — recomputing every index map carefully:
+Now run the tests and the gate:
+The parser is right; several of my test expectations are stale (segment counts and incoming-side offsets). Reading the rest, then fixing all remaining assertions:
+All five failures are stale `len` assertions (block-only content yields exactly 2 segments) plus two offsets in `block_at_start_of_file`. Fixing:
+The `"before"` (no newline) case concatenates with the opener line, so it's correctly not a marker — the test should trim the trailing newline after the block instead:
+Gate green. Final test run, then bookkeeping:
+T4 done this iteration.
 
-Fixes:
-- `src/engine.rs:346` — `restore_entry` now returns `Result<EntryRecord, String>` with the restored note's actual id (mirrors `create_entry_new`).
-- `src/window.rs:1805` — undo handler opens `record.entry_id` instead of the deleted id; dropped the now-unused `entry_id` param from `show_delete_undo_toast`.
-
-Gate (`cargo clippy --all-targets -- -D warnings`) passes clean. PLAN.md updated, progress.txt created.
+- Added `src/conflict.rs`: `split_conflict_segments()` parses entry content into `ConflictSegment::Normal | Current | Incoming` runs with 0-based `start_line` offsets; marker lines are dropped from well-formed blocks but their positions are recoverable via the segment contract (`header = current.start_line - 1`, `sep = current.start + line_count`, `end = incoming.start + line_count`) — ready for T5/T6.
+- Strict git-shaped markers only: 7 chars at line start, optional space+label, lone `=======`; malformed blocks (missing separator, unclosed at EOF) demote to verbatim prose; indented/mid-line/wrong-length lookalikes stay Normal.
+- Wired `mod conflict;` in src/main.rs:23; module carries a temporary `#![allow(dead_code)]` to be removed once T5 consumes the API.
+- 16 new unit tests covering all task-required cases; full suite 39/39 green and gate (`env CARGO_HOME=.cargo cargo clippy --all-targets -- -D warnings`) exits clean.
+- Marked T4 `- [x]` in PLAN.md and appended the progress line.

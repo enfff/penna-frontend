@@ -5,7 +5,7 @@ only when the gate command passes for that task's work.
 
 ## Active
 
-- [ ] T4: Conflict parser — pure function in `src/window.rs` (or a new module)
+- [x] T4: Conflict parser — pure function in `src/window.rs` (or a new module)
       that splits entry content into segments `Normal | Current | Incoming`
       based on standard git conflict markers (`<<<<<<<`, `=======`,
       `>>>>>>>`). Unit tests: single block, multiple blocks, block at

@@ -19,6 +19,7 @@
  */
 
 mod application;
+mod conflict;
 mod config;
 mod engine;
 mod window;
