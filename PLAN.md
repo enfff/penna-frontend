@@ -12,7 +12,7 @@ only when the gate command passes for that task's work.
 - [x] T2: Add unit tests for entry-id parsing/formatting (`YYYYMMDDHHmm.md`)
       round-trip: parse -> format -> parse equality, plus rejects (wrong length,
       non-digits, wrong extension). Pure logic only, no GTK fixtures needed.
-- [ ] T3: Add unit tests for note data parsing in `src/engine.rs`, covering the
+- [x] T3: Add unit tests for note data parsing in `src/engine.rs`, covering the
       formats exercised by the recent "data format preview / improved data
       parsing" work, including malformed input paths.
 

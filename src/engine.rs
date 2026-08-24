@@ -574,6 +574,148 @@ impl EngineMock {
 }
 
 #[cfg(test)]
+mod note_data_parsing_tests {
+    use super::*;
+
+    #[test]
+    fn split_separates_heading_and_body() {
+        let (title, body) =
+            EngineMock::split_markdown_content("# Morning walk\n\nWent around the lake.");
+        assert_eq!(title, "Morning walk");
+        assert_eq!(body, "Went around the lake.");
+    }
+
+    #[test]
+    fn split_accepts_heading_without_blank_line() {
+        let (title, body) =
+            EngineMock::split_markdown_content("# Morning walk\nWent around the lake.");
+        assert_eq!(title, "Morning walk");
+        assert_eq!(body, "Went around the lake.");
+    }
+
+    #[test]
+    fn split_keeps_multiline_body_intact() {
+        let content = "# Groceries\n\neggs\nmilk\nbread";
+        let (title, body) = EngineMock::split_markdown_content(content);
+        assert_eq!(title, "Groceries");
+        assert_eq!(body, "eggs\nmilk\nbread");
+    }
+
+    #[test]
+    fn split_trims_whitespace_from_title() {
+        let (title, _) = EngineMock::split_markdown_content("#   Padded title   \n\nBody");
+        assert_eq!(title, "Padded title");
+    }
+
+    #[test]
+    fn split_treats_unheaded_content_as_body() {
+        let content = "Just some thoughts, no heading.";
+        let (title, body) = EngineMock::split_markdown_content(content);
+        assert_eq!(title, "");
+        assert_eq!(body, content);
+    }
+
+    #[test]
+    fn split_treats_empty_content_as_empty_fields() {
+        let (title, body) = EngineMock::split_markdown_content("");
+        assert_eq!(title, "");
+        assert_eq!(body, "");
+    }
+
+    #[test]
+    fn split_treats_bare_hash_prefix_as_empty_title() {
+        // Malformed: a heading with no title text still yields an empty
+        // title rather than panicking or swallowing the rest of the note.
+        let (title, body) = EngineMock::split_markdown_content("# \n\nBody");
+        assert_eq!(title, "");
+        assert_eq!(body, "Body");
+    }
+
+    #[test]
+    fn split_does_not_mistake_subheading_for_title() {
+        // "## " does not match the "# " title prefix, so the whole note is
+        // body and the caller keeps the previous title.
+        let content = "## Deep dive\nDetails here.";
+        let (title, body) = EngineMock::split_markdown_content(content);
+        assert_eq!(title, "");
+        assert_eq!(body, content);
+    }
+
+    #[test]
+    fn split_ignores_heading_below_first_line() {
+        // Only the very first line can be a title; a later heading stays
+        // inside the body verbatim.
+        let content = "Intro paragraph\n# Not a title";
+        let (title, body) = EngineMock::split_markdown_content(content);
+        assert_eq!(title, "");
+        assert_eq!(body, content);
+    }
+
+    #[test]
+    fn compose_omits_heading_for_blank_titles() {
+        assert_eq!(EngineMock::compose_markdown_content("", "Body only"), "Body only");
+        assert_eq!(
+            EngineMock::compose_markdown_content("   ", "Body only"),
+            "Body only"
+        );
+    }
+
+    #[test]
+    fn compose_omits_separator_for_blank_bodies() {
+        assert_eq!(EngineMock::compose_markdown_content("Title", "   "), "# Title");
+        assert_eq!(EngineMock::compose_markdown_content("Title", ""), "# Title");
+    }
+
+    #[test]
+    fn compose_is_identity_for_both_parts_empty() {
+        assert_eq!(EngineMock::compose_markdown_content("", ""), "");
+    }
+
+    #[test]
+    fn compose_split_round_trips_losslessly() {
+        for (title, body) in [
+            ("Title", "Body"),
+            ("Only a title", ""),
+            ("", "Only a body"),
+            ("", ""),
+            ("Multi word title", "line one\nline two"),
+            ("Tricky #hash title", "- bullet\n- list"),
+        ] {
+            let composed = EngineMock::compose_markdown_content(title, body);
+            let (parsed_title, parsed_body) = EngineMock::split_markdown_content(&composed);
+            assert_eq!(parsed_title, title, "title should survive the round trip");
+            assert_eq!(parsed_body, body, "body should survive the round trip");
+
+            let recomposed = EngineMock::compose_markdown_content(&parsed_title, &parsed_body);
+            assert_eq!(recomposed, composed, "recomposition should be a fixed point");
+        }
+    }
+
+    #[test]
+    fn normalize_tags_trims_dedupes_sorts_and_skips_blanks() {
+        let tags: Vec<String> = vec![
+            "  travel ".to_string(),
+            String::new(),
+            "work".to_string(),
+            "   ".to_string(),
+            "travel".to_string(),
+            " family".to_string(),
+        ];
+        assert_eq!(
+            EngineMock::normalize_tags(&tags),
+            vec!["family", "travel", "work"]
+        );
+    }
+
+    #[test]
+    fn normalize_tags_of_garbage_input_is_empty() {
+        let garbage: Vec<String> = vec![String::new(), "  ".to_string(), "\t\n".to_string()];
+        assert!(EngineMock::normalize_tags(&garbage).is_empty());
+        assert!(EngineMock::normalize_tags(&[]).is_empty());
+    }
+}
+
+#[cfg(test)]
 mod entry_id_tests {
     use super::*;
 

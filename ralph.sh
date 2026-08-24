@@ -61,15 +61,17 @@ release_bump() {
   fi
 
   # Keep crate, meson (feeds config.rs/about dialog) and lockfile in sync.
-  sed -i "s/^version = \".*\"/version = \"$next\"/" Cargo.toml
+  # Anchor on the package name so dependency version lines are untouched.
+  sed -i "/^name = \"penna-frontend\"$/{n;s/^version = \".*\"/version = \"$next\"/}" Cargo.toml
   sed -i "s/^\([[:space:]]*\)version: '.*',/\1version: '$next',/" meson.build
   sed -i "/^name = \"penna-frontend\"$/{n;s/^version = \".*\"/version = \"$next\"/}" Cargo.lock
 
-  env CARGO_HOME=.cargo cargo clippy --all-targets -- -D warnings >/dev/null 2>&1 || {
+  if ! gate_out=$("${GATE[@]}" 2>&1); then
     echo "gate red after version bump — reverting" >&2
+    echo "$gate_out" | tail -20 >&2
     git checkout -- Cargo.toml meson.build Cargo.lock
     return 1
-  }
+  fi
 
   git add Cargo.toml meson.build Cargo.lock
   git commit -q -m "chore(release): v$next"
