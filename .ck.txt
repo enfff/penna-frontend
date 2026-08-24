@@ -1,4 +1,0 @@
-270:    pub fn new() -> Self {
-276:    pub fn connect_journal<P: AsRef<Path>>(&self, repo_path: P) -> Result<JournalSession, EngineError> {
-350:    pub fn disconnect_journal(&self, session_id: &str) -> Result<(), EngineError> {
-505:    fn new_session_id() -> String {

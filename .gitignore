@@ -23,3 +23,5 @@
 
 # Copy of our penna engine, temporary until we can get it published to crates.io
 vendor/
+
+*.txt
