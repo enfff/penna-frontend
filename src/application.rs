@@ -22,6 +22,7 @@ use gettextrs::gettext;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib, pango};
+use chrono::Local;
 use std::rc::Rc;
 
 use crate::config::VERSION;
@@ -36,6 +37,26 @@ const EDITOR_FONT_SIZE_MIN_PT: f64 = 10.0;
 const EDITOR_FONT_SIZE_MAX_PT: f64 = 28.0;
 const EDITOR_FONT_SIZE_DEFAULT_PT: f64 = 14.0;
 const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
+
+/// Renders a sample timestamp with the given strftime format for the live
+/// preview in the settings dialog. Uses the same safe `write_to` path as the
+/// notes grid so an unsupported format (e.g. `%z`) degrades to the default
+/// instead of panicking.
+fn preview_datetime_format(fmt: &str) -> String {
+    let sample = Local::now().naive_local();
+    let mut buffer = String::new();
+    if sample.format(fmt).write_to(&mut buffer).is_err() {
+        buffer.clear();
+        let _ = sample
+            .format(ENTRY_DATETIME_FORMAT_DEFAULT)
+            .write_to(&mut buffer);
+    }
+    if buffer.is_empty() {
+        String::from("(invalid format)")
+    } else {
+        buffer
+    }
+}
 
 mod imp {
     use super::*;
@@ -461,6 +482,19 @@ impl PennaFrontendApplication {
         });
         entry_format_row.set_show_apply_button(false);
 
+        // Live preview of the format, shown to the right of the entry.
+        let entry_format_preview = gtk::Label::new(None);
+        entry_format_preview.add_css_class("dim-label");
+        entry_format_preview.set_halign(gtk::Align::End);
+        entry_format_row.add_suffix(&entry_format_preview);
+
+        let initial_format = if entry_datetime_format.trim().is_empty() {
+            ENTRY_DATETIME_FORMAT_DEFAULT
+        } else {
+            entry_datetime_format.trim()
+        };
+        entry_format_preview.set_text(&preview_datetime_format(initial_format));
+
         let settings_for_entry_format = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_entry_format = self.clone();
         entry_format_row.connect_text_notify(move |row| {
@@ -473,6 +507,8 @@ impl PennaFrontendApplication {
 
             let _ = settings_for_entry_format
                 .set_string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY, normalized);
+
+            entry_format_preview.set_text(&preview_datetime_format(normalized));
 
             if let Some(window) = app_for_entry_format.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
