@@ -260,16 +260,11 @@ impl EngineMock {
             .ok_or_else(|| "Journal handle not found".to_string())?;
 
         let internal_id = Self::to_internal_entry_id(entry_id);
-        let existing = self
-            .engine
-            .get_entry(&session.session_id, &internal_id)
-            .map_err(Self::format_engine_error)?
-            .ok_or_else(|| "Entry not found".to_string())?;
-
-        let (mut title, body) = Self::split_markdown_content(content);
-        if title.trim().is_empty() {
-            title = existing.title;
-        }
+        // The content is the single source of truth: an empty title (no
+        // heading) is stored as-is, so deleting a heading and saving removes
+        // it instead of resurrecting the previous one. The engine preserves
+        // `created_at` and errors if the entry does not exist.
+        let (title, body) = Self::split_markdown_content(content);
 
         let request = UpdateEntryRequest {
             id: internal_id,
@@ -474,7 +469,7 @@ impl EngineMock {
     fn split_markdown_content(content: &str) -> (String, String) {
         let lines: Vec<&str> = content.lines().collect();
         if lines.is_empty() {
-            return ("Untitled".to_string(), String::new());
+            return (String::new(), String::new());
         }
 
         if let Some(first) = lines.first() {
@@ -485,7 +480,9 @@ impl EngineMock {
             }
         }
 
-        ("Untitled".to_string(), content.to_string())
+        // No heading present: return an empty title so the caller can fall
+        // back to the entry's existing title instead of forcing "Untitled".
+        (String::new(), content.to_string())
     }
 
     fn compose_markdown_content(title: &str, body: &str) -> String {
