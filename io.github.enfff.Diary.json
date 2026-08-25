@@ -1,5 +1,5 @@
 {
-    "id" : "com.github.pennafe",
+    "id" : "io.github.enfff.Diary",
     "runtime" : "org.gnome.Platform",
     "runtime-version" : "50",
     "sdk" : "org.gnome.Sdk",
@@ -43,7 +43,7 @@
             "sources" : [
                 {
                     "type" : "git",
-                    "url" : "file:///home/enf/Projects"
+                    "url" : "https://github.com/enfff/penna-frontend.git"
                 }
             ],
             "config-opts" : [

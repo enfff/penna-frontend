@@ -1,47 +1,26 @@
 # Diary
 
-A local-first GNOME journal app built with GTK4 and libadwaita. Every entry is
-a plain Markdown file in a git repository you own — no accounts, no cloud, no
-lock-in. Sync and history come from git itself, with a guided conflict
-resolver when branches disagree.
+A journal app for GNOME, built in top of the [penna engine](https://www.github.com/enfff/penna).
+Entries are plain Markdown files in a git repo, so history and sync  
+come from git, and your notes stay readable even without this app.
 
-Internal/binary name is `penna-frontend`; the app presents itself as **Diary**.
+## Build
 
-## Features
+Open the folder in GNOME Builder and press run. Or by hand:
 
-- Local-first journaling (plain Markdown files, one note per day)
-- Inline Markdown formatting with syntax highlighting and viewer mode
-- Full-text search across titles and content
-- Git-backed history and sync between machines
-- Conflict-safe syncing with a guided resolver
+    meson setup _build
+    ninja -C _build
+    ninja -C _build install
 
-## Building
+Needs Rust 1.92+ and GTK4/libadwaita (GNOME 50 era).
 
-GNOME Builder opens and builds the Flatpak manifest out of the box:
+## Notes
 
-```sh
-flatpak run --command=meson org.gnome.Sdk//50 _build .
-ninja -C _build
-```
+- One entry per day, saved as `YYYYMMDDHHmm.md`
+- Syncing is just git; conflicts get their own little resolver UI
+- Translations live in `po/` (de, fr, it so far)
 
-Or with a local toolchain meeting the MSRV (1.92):
+## License
 
-```sh
-cargo build
-```
-
-## Translations
-
-Translations live in `po/` (currently German, French, Italian). Regenerate the
-template after changing user-facing strings:
-
-```sh
-meson setup _build && ninja -C _build penna-frontend-pot
-```
-
-## Code of Conduct
-
-This project follows the
-[GNOME Code of Conduct](https://conduct.gnome.org/). By participating you are
-expected to uphold it; report issues to the GNOME Code of Conduct Committee via
-their [report guide](https://conduct.gnome.org/report-guide/).
+GPL-3.0-or-later. Contributions follow the
+[GNOME Code of Conduct](https://conduct.gnome.org/).

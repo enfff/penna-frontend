@@ -1,11 +1,15 @@
-T13's work appears mostly landed (progress log claims completion but `PLAN.md` still shows it open — likely a crash between steps 6 and 5 last iteration). My job: verify T13 fully satisfies its checklist before marking it done.
-POT regenerates byte-identical apart from its creation timestamp — content is current. Now the gate:
-All T13 checklist items verified. Marking it done and logging:
-**T13 verified and closed.** The prior iteration had completed the plural-forms work but `PLAN.md` was left unchecked, so this run re-audited it end-to-end:
+Task: **T17** — move entry date/time formatting + pure string-formatting helpers to `src/format.rs` with their tests. Let me survey window.rs for formatting functions.
+Scope identified. Checking remaining usages of the chrono imports and the default-format const before extracting:
+Full picture acquired. Creating `src/format.rs` with the four helpers, the `EntryTimestamp` struct, the default-format const, and the moved tests:
+Now wiring it up — main.rs registration, window.rs deletions and call-site rewiring:
+Now removing the moved test module from window.rs:
+I clipped the tail of `sync_message_tests` in that edit — restoring it:
+Only the two intended call sites remain. Running the gate:
+Gate green — clippy clean, 82/82 tests pass. Marking done and logging:
+**T17 complete.**
 
-- `src/i18n.rs:66` and `:75` use `gettextrs::ngettext`; `sync_conflict_toast_message` (src/window.rs:3876) delegates to the plural-aware helper — all three count-bearing strings covered.
-- `po/penna-frontend.pot` regenerated via `ninja -C build penna-frontend-pot`: content-identical to the tree copy (timestamp-only diff).
-- `po/de.po`, `po/fr.po`, `po/it.po` all carry correct plural entries and Plural-Forms headers; `msgfmt --check --statistics` passes at 59/59 translated each.
-- Gate (`cargo clippy --all-targets -- -D warnings`) green; 78 unit tests pass.
-
-Next iteration starts on T14 (translatable desktop metadata).
+- Moved to new `src/format.rs` (144 lines): `format_entry_date`, `parse_entry_timestamp`, `effective_entry_datetime_format` (now private), `is_valid_chrono_format`, `EntryTimestamp`, `ENTRY_DATETIME_FORMAT_DEFAULT`, plus the 6 `entry_id_tests`.
+- `src/window.rs`: 4102 → 3930 lines — deleted the above, rewired 2 call sites to `format::format_entry_date` (src/window.rs:1914, src/window.rs:2667), dropped the now-unused `chrono` import.
+- `src/main.rs` +1 (`mod format;`). No behavior, string, or .ui changes.
+- Gate: clippy `-D warnings` clean, 82/82 tests pass.
+- Note: sync message builders (`sync_status_message` etc.) left in window.rs — they're i18n-bound UI feedback and fit naturally with T19's sync boundary; tag-chip helpers left for T21.

@@ -18,11 +18,19 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+mod about;
 mod application;
 mod conflict;
 mod config;
+mod editor;
 mod engine;
+mod format;
+mod gestures;
+mod grid;
 mod i18n;
+mod preferences;
+mod settings;
+mod sync;
 mod window;
 
 use self::application::PennaFrontendApplication;

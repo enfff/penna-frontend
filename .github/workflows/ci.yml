@@ -16,9 +16,6 @@ jobs:
       image: ghcr.io/gtk-rs/gtk4-rs/gtk4:latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests

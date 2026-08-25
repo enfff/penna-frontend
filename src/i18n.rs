@@ -15,9 +15,7 @@ pub fn repo_path_required() -> String {
     gettext("Repository path required")
 }
 
-pub fn repository_selected_click_connect() -> String {
-    gettext("Repository selected. Click Connect.")
-}
+
 
 pub fn connect_repository_before_saving() -> String {
     gettext("Connect repository before saving")
@@ -97,8 +95,23 @@ pub fn accepted_incoming_changes() -> String {
     gettext("Accepted incoming changes")
 }
 
-pub fn change_repository() -> String {
-    gettext("Change Repository")
+// Currently uncalled: the preferences rework replaced its only call site.
+// Kept so the msgid stays registered for translations.
+#[allow(dead_code)]
+pub fn repository_group_title() -> String {
+    gettext("Repository")
+}
+
+pub fn change_action_label() -> String {
+    gettext("Change…")
+}
+
+pub fn repository_path_label() -> String {
+    gettext("Repository path")
+}
+
+pub fn no_repository_connected() -> String {
+    gettext("No repository connected yet")
 }
 
 pub fn choose_repository_folder() -> String {
@@ -123,10 +136,6 @@ mod i18n_surface_tests {
         assert_eq!(diary_title(), "Diary");
         assert_eq!(repo_path_required(), "Repository path required");
         assert_eq!(
-            repository_selected_click_connect(),
-            "Repository selected. Click Connect."
-        );
-        assert_eq!(
             connect_repository_before_saving(),
             "Connect repository before saving"
         );
@@ -149,7 +158,6 @@ mod i18n_surface_tests {
         assert_eq!(accept_incoming_label(), "Accept Incoming");
         assert_eq!(accepted_current_changes(), "Accepted current changes");
         assert_eq!(accepted_incoming_changes(), "Accepted incoming changes");
-        assert_eq!(change_repository(), "Change Repository");
     }
 
     #[test]

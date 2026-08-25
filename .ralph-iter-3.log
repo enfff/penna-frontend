@@ -1,8 +1,13 @@
-Context loaded. First `- [ ]` task is **T14: translatable desktop metadata**. Let me check the build setup and how the previous iteration refreshed po files.
-Build dir is configured with both `pot` and `update-po` targets. Now implementing T14: add translatable `GenericName` + `Comment` to the desktop file.
-POT regenerated cleanly. Now adding the two new msgids to each po file with translations, in template order (between `Penna-frontend` and `GTK;`).
-All 61 messages translated, no warnings. Now rebuild the merged desktop file and validate it:
-Merged file validates. Quick sanity check that translations actually merged into the desktop file:
-All locales merged. Running the gate command:
-Gate green. Marking T14 done and logging progress:
-**T14 complete.** Added translatable `GenericName=Journal` and `Comment=Keep a journal of your thoughts and memories` to `data/com.github.pennafe.desktop.in:3-4`, regenerated `po/penna-frontend.pot` via ninja, filled de/fr/it translations for both new msgids (61/61 each, `msgfmt --check` clean), and the merged desktop file passes `desktop-file-validate`. Gate command green; next iteration picks up T15.
+Task T18: move gesture installers into `src/gestures.rs`. Let me find them.
+Imp fields are already `pub`. Let me check the remaining pieces I need: the imp struct fields around lines 110-170, and `show_grid_view` at 3686.
+Meson delegates to cargo, so new files need no registration. Creating `src/gestures.rs` with the two installers, their constants, and the sole-caller helper `editor_content_scrollable`:
+Now the window.rs edits:
+The second edit kept `editor_content_scrollable` in window.rs by accident — it should move entirely (its only caller is now in gestures.rs). Removing it:
+Now compile, then run the gate:
+Gate green. Marking T18 done and logging progress:
+**T18 done.**
+
+- Moved `install_editor_back_swipe` + `install_editor_back_swipe_touchpad`, all 6 `BACK_SWIPE_*` constants (comments preserved), and `editor_content_scrollable` (sole caller was the touchpad installer) into new `src/gestures.rs` — public fns taking `&PennaFrontendWindow`.
+- window.rs: call sites now `gestures::install_editor_back_swipe(self)`; `show_grid_view` widened to `pub(crate)`; unused `Cell` import dropped. No behavior/strings/.ui changes.
+- Line counts: gestures.rs 0→225, window.rs 3930→3721.
+- Gate: clippy `-D warnings` clean, 82 tests pass. PLAN.md updated, progress.txt appended.

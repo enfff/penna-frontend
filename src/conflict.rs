@@ -222,6 +222,54 @@ fn marker_span(line: usize) -> ConflictSpan {
     }
 }
 
+/// A styleable char range derived from a parsed conflict, one line at a
+/// time.
+///
+/// Offsets count `char`s of the source content (the unit GTK text-buffer
+/// iterators work in). Each range begins at its line's first character
+/// and spans exactly one character when that line is newline-terminated;
+/// for an unterminated final line it is zero-width (the tag applier
+/// skips empty ranges).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConflictStyleRange {
+    pub(crate) kind: ConflictSpanKind,
+    pub(crate) start_char: usize,
+    /// Exclusive.
+    pub(crate) end_char: usize,
+}
+
+/// Expands [`conflict_style_spans`] into per-line char-offset ranges.
+///
+/// Every span yields one range per covered line, in document order; a
+/// range is emitted even when it turns out empty. See
+/// [`ConflictStyleRange`] for the exact offset contract.
+pub(crate) fn conflict_style_char_ranges(content: &str) -> Vec<ConflictStyleRange> {
+    let mut line_bounds: Vec<(usize, usize)> = Vec::new();
+    let mut position = 0usize;
+    for line in content.split_inclusive('\n') {
+        let width = line.chars().count();
+        line_bounds.push((
+            position,
+            position + width - line.trim_end_matches('\n').chars().count(),
+        ));
+        position += width;
+    }
+
+    let mut ranges = Vec::new();
+    for span in conflict_style_spans(content) {
+        for line in span.start_line..span.end_line {
+            if let Some(&(start_char, end_char)) = line_bounds.get(line) {
+                ranges.push(ConflictStyleRange {
+                    kind: span.kind,
+                    start_char,
+                    end_char,
+                });
+            }
+        }
+    }
+    ranges
+}
+
 /// Which side of a conflict block survives when the block is accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConflictSide {
@@ -756,6 +804,164 @@ e
                 assert!(span.start_line < span.end_line);
                 assert!(span.end_line <= line_count, "content {content:?}");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod conflict_char_range_tests {
+    use super::*;
+
+    const BLOCK: &str = "\
+<<<<<<< HEAD
+mine
+=======
+theirs
+>>>>>>> topic
+";
+
+    #[test]
+    fn bare_block_expands_to_five_per_line_ranges() {
+        // Pins the applier's current offset contract verbatim: a range
+        // starts at its line and spans one char for a newline-terminated
+        // line, zero chars otherwise.
+        let ranges = conflict_style_char_ranges(BLOCK);
+
+        let expected: [(ConflictSpanKind, usize, usize); 5] = [
+            (ConflictSpanKind::MarkerLine, 0, 1),
+            (ConflictSpanKind::CurrentLines, 13, 14),
+            (ConflictSpanKind::MarkerLine, 18, 19),
+            (ConflictSpanKind::IncomingLines, 26, 27),
+            (ConflictSpanKind::MarkerLine, 33, 34),
+        ];
+        assert_eq!(ranges.len(), expected.len());
+        for (range, (kind, start_char, end_char)) in ranges.iter().zip(expected.iter()) {
+            assert_eq!(range.kind, *kind);
+            assert_eq!(range.start_char, *start_char);
+            assert_eq!(range.end_char, *end_char);
+        }
+    }
+
+    #[test]
+    fn ranges_count_chars_not_bytes() {
+        // Multibyte content widens bytes, not offsets.
+        let content = "<<<<<<< H\n日本語\n=======\n語\n>>>>>>> t";
+        let ranges = conflict_style_char_ranges(content);
+
+        assert_eq!(
+            ranges
+                .iter()
+                .map(|range| range.end_char - range.start_char)
+                .collect::<Vec<_>>(),
+            vec![1, 1, 1, 1, 0]
+        );
+    }
+
+    #[test]
+    fn multiline_side_yields_one_range_per_line() {
+        let content = "\
+<<<<<<< HEAD
+a
+b
+
+c
+=======
+d
+
+e
+>>>>>>> topic
+";
+        let ranges = conflict_style_char_ranges(content);
+
+        assert_eq!(ranges.len(), 10);
+        assert_eq!(
+            ranges
+                .iter()
+                .filter(|range| range.kind == ConflictSpanKind::CurrentLines)
+                .count(),
+            4
+        );
+        assert_eq!(
+            ranges
+                .iter()
+                .filter(|range| range.kind == ConflictSpanKind::IncomingLines)
+                .count(),
+            3
+        );
+        assert_eq!(
+            ranges
+                .iter()
+                .filter(|range| range.kind == ConflictSpanKind::MarkerLine)
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn ranges_start_on_line_boundaries_and_widths_follow_terminators() {
+        for content in [
+            BLOCK.to_string(),
+            format!("intro\n{BLOCK}outro\n"),
+            format!("{BLOCK}{BLOCK}tail\n"),
+            String::from("<<<<<<< HEAD\n日本語\n=======\n語\n>>>>>>> t"),
+            String::from("<<<<<<< HEAD\n=======\n>>>>>>> topic\n"),
+            String::from("x\n<<<<<<< H\n=======\n>>>>>>> t"),
+        ] {
+            let lines: Vec<&str> = content.split_inclusive('\n').collect();
+            let mut starts = Vec::new();
+            let mut position = 0usize;
+            for line in &lines {
+                starts.push(position);
+                position += line.chars().count();
+            }
+            assert_eq!(position, content.chars().count());
+
+            let mut previous_start = 0usize;
+            for range in conflict_style_char_ranges(&content) {
+                assert!(range.start_char >= previous_start);
+                previous_start = range.start_char;
+
+                let index = starts
+                    .iter()
+                    .position(|&start| start == range.start_char)
+                    .unwrap_or_else(|| {
+                        panic!("start {} off a line boundary in {content:?}", range.start_char)
+                    });
+                let expected_width = usize::from(lines[index].ends_with('\n'));
+                assert_eq!(
+                    range.end_char - range.start_char,
+                    expected_width,
+                    "content {content:?} line {index}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn empty_sides_produce_marker_ranges_only() {
+        let content = "<<<<<<< HEAD\n=======\n>>>>>>> topic\n";
+        let ranges = conflict_style_char_ranges(content);
+
+        assert_eq!(ranges.len(), 3);
+        assert!(ranges
+            .iter()
+            .all(|range| range.kind == ConflictSpanKind::MarkerLine));
+    }
+
+    #[test]
+    fn malformed_and_plain_content_yield_nothing() {
+        for content in [
+            "",
+            "just prose\n",
+            "<<<<<<< HEAD\nalpha\n>>>>>>> feature\n",
+            "intro\n<<<<<<< HEAD\nalpha\n=======\nbeta",
+            "a\n=======\n>>>>>>> nowhere\nb\n",
+            "see <<<<<<< demo below\n",
+        ] {
+            assert!(
+                conflict_style_char_ranges(content).is_empty(),
+                "content {content:?}"
+            );
         }
     }
 }

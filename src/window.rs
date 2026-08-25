@@ -20,80 +20,41 @@
 
 use adw::prelude::{AdwDialogExt, NavigationPageExt};
 use adw::subclass::prelude::*;
-use chrono::{format::Item, format::StrftimeItems, NaiveDateTime};
 use gtk::pango;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 
 use crate::i18n;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::conflict::{
-    conflict_block_at_line, conflict_style_spans, unresolved_conflict_count, ConflictBlock,
+    conflict_block_at_line, conflict_style_char_ranges, unresolved_conflict_count, ConflictBlock,
     ConflictSide, ConflictSpanKind,
+};
+use crate::editor;
+use crate::editor::{
+    TAG_BLOCKQUOTE, TAG_BOLD, TAG_CHECKED, TAG_CODE, TAG_CODE_BLOCK, TAG_CONFLICT_CURRENT,
+    TAG_CONFLICT_INCOMING, TAG_CONFLICT_MARKER, TAG_HEADING_1, TAG_HEADING_2, TAG_HEADING_3,
+    TAG_HEADING_4, TAG_ITALIC, TAG_LINK, TAG_LIST_ITEM, TAG_LIST_MARKER, TAG_RULE,
+    TAG_STRIKETHROUGH, TAG_SYNTAX,
 };
 use crate::engine::{
     EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
 };
+use crate::format;
+use crate::gestures;
+use crate::grid;
+use crate::settings;
+use crate::sync;
 
-const SETTINGS_SCHEMA_ID: &str = "io.github.enfff.Diary";
-const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
-const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
-const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
-const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
-const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
-const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
-const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
-const EDITOR_FONT_SIZE_MIN_PT: i32 = 10;
-const EDITOR_FONT_SIZE_MAX_PT: i32 = 28;
-const BACK_SWIPE_EDGE_ZONE_PX: f64 = 48.0;
-const BACK_SWIPE_MIN_DISTANCE_PX: f64 = 16.0;
-// Rightward-dominant motion past this commits the back-swipe. Must stay well
-// below the editor's drag threshold so the capture gesture claims the
-// sequence before the ScrolledWindow does.
-const BACK_SWIPE_EARLY_COMMIT_PX: f64 = 4.0;
-// Matches GtkSettings `gtk-dnd-drag-threshold` (default 8): the distance at
-// which the ScrolledWindow's own drag gesture would claim the sequence.
-const BACK_SWIPE_DECIDE_PX: f64 = 8.0;
-// Touchpad back-swipe: two-finger swiping reaches us as a smooth scroll
-// stream, not touch events. Accumulated deltas past this decide whether the
-// stream is horizontal enough to be a back-swipe at all.
-const BACK_SWIPE_TOUCHPAD_DECIDE_PX: f64 = 10.0;
-// Accumulated rightward travel that triggers the actual pop. The pop runs the
-// standard animated transition; there is no live finger-tracking because
-// libadwaita's interactive swipe is driven by private tracker internals we
-// cannot feed from a capture-phase controller. Keep this low so the wait
-// before the animation feels short.
-const BACK_SWIPE_TOUCHPAD_POP_PX: f64 = 40.0;
-
-const TAG_HEADING_1: &str = "md-heading-1";
-const TAG_HEADING_2: &str = "md-heading-2";
-const TAG_HEADING_3: &str = "md-heading-3";
-const TAG_HEADING_4: &str = "md-heading-4";
-const TAG_BLOCKQUOTE: &str = "md-blockquote";
-const TAG_CODE: &str = "md-code";
-const TAG_CODE_BLOCK: &str = "md-code-block";
-const TAG_BOLD: &str = "md-bold";
-const TAG_ITALIC: &str = "md-italic";
-const TAG_STRIKETHROUGH: &str = "md-strikethrough";
-const TAG_SYNTAX: &str = "md-syntax";
-const TAG_LIST_MARKER: &str = "md-list-marker";
-const TAG_LIST_ITEM: &str = "md-list-item";
-const TAG_LINK: &str = "md-link";
-const TAG_CHECKED: &str = "md-checked";
-const TAG_RULE: &str = "md-rule";
-const TAG_CONFLICT_CURRENT: &str = "conflict-current";
-const TAG_CONFLICT_INCOMING: &str = "conflict-incoming";
-const TAG_CONFLICT_MARKER: &str = "conflict-marker";
 const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
-const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 struct CheckboxItem {
     marker_len: usize,
@@ -105,15 +66,11 @@ struct LinkMatch {
     total_len: usize,
 }
 
-struct EntryTimestamp {
-    value: NaiveDateTime,
-}
-
 mod imp {
     use super::*;
 
     #[derive(Debug, gtk::CompositeTemplate)]
-    #[template(resource = "/com/github/pennafe/window.ui")]
+    #[template(resource = "/io/github/enfff/Diary/window.ui")]
     pub struct PennaFrontendWindow {
         #[template_child]
         pub app_stack: TemplateChild<gtk::Stack>,
@@ -127,10 +84,6 @@ mod imp {
         pub notes_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
         pub editor_page: TemplateChild<adw::NavigationPage>,
-        #[template_child]
-        pub repo_path_entry: TemplateChild<gtk::Entry>,
-        #[template_child]
-        pub choose_repo_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub connect_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -191,8 +144,6 @@ mod imp {
                 content_view: TemplateChild::default(),
                 notes_page: TemplateChild::default(),
                 editor_page: TemplateChild::default(),
-                repo_path_entry: TemplateChild::default(),
-                choose_repo_button: TemplateChild::default(),
                 connect_button: TemplateChild::default(),
                 setup_status_label: TemplateChild::default(),
                 sync_status_label: TemplateChild::default(),
@@ -222,7 +173,7 @@ mod imp {
                 grid_selected_entry_id: RefCell::default(),
                 header_visibility_locked: RefCell::default(),
                 editor_css_provider: RefCell::default(),
-                editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
+                editor_font_size_pt: RefCell::new(editor::EDITOR_FONT_SIZE_DEFAULT_PT),
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
@@ -274,12 +225,8 @@ impl PennaFrontendWindow {
             .build()
     }
 
-    pub fn refresh_editor_appearance(&self) {
-        self.apply_editor_css();
-    }
-
     pub fn refresh_entry_datetime_format(&self) {
-        self.refresh_notes_grid();
+        grid::refresh_notes_grid(self);
 
         // The headerbar shows the formatted entry date only while an entry is
         // open in the editor. On the notes grid the title stays "Diary", so
@@ -290,21 +237,6 @@ impl PennaFrontendWindow {
 
         let entry_id = self.imp().current_entry_id.borrow().clone();
         self.update_window_title(entry_id.as_deref());
-    }
-
-    pub fn editor_font_size_pt(&self) -> i32 {
-        *self.imp().editor_font_size_pt.borrow()
-    }
-
-    pub fn set_editor_font_size_pt(&self, size_pt: i32) {
-        let next_size = size_pt.clamp(EDITOR_FONT_SIZE_MIN_PT, EDITOR_FONT_SIZE_MAX_PT);
-
-        if next_size == *self.imp().editor_font_size_pt.borrow() {
-            return;
-        }
-
-        *self.imp().editor_font_size_pt.borrow_mut() = next_size;
-        self.apply_editor_css();
     }
 
     fn set_editor_only_actions_enabled(&self, enabled: bool) {
@@ -372,7 +304,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.adjust_editor_zoom(1);
+                editor::adjust_editor_zoom(&window, 1);
             }
         ));
         self.add_action(&zoom_in);
@@ -382,7 +314,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.adjust_editor_zoom(-1);
+                editor::adjust_editor_zoom(&window, -1);
             }
         ));
         self.add_action(&zoom_out);
@@ -392,7 +324,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.toggle_viewer_mode();
+                editor::toggle_viewer_mode(&window);
             }
         ));
         self.add_action(&toggle_viewer_mode);
@@ -584,52 +516,23 @@ impl PennaFrontendWindow {
     /// Folder-picker entry point for changing the journal repository:
     /// opens a native folder dialog and connects straight to the pick.
     pub fn pick_repository_and_connect(&self) {
-        let dialog = gtk::FileDialog::new();
-        dialog.set_title(i18n::choose_repository_folder().as_str());
-        dialog.select_folder(
-            Some(self),
-            None::<&gio::Cancellable>,
-            glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                move |result| {
-                    let Ok(file) = result else {
-                        return; // user cancelled
-                    };
-                    let Some(path) = file.path() else {
-                        return;
-                    };
-                    window
-                        .imp()
-                        .repo_path_entry
-                        .set_text(&path.to_string_lossy());
-                    window.connect_journal();
-                }
-            ),
-        );
+        self.choose_repo_folder();
     }
 
     fn setup_callbacks(&self) {
         let imp = self.imp();
 
-        self.setup_editor_css();
-        self.setup_editor_tags();
+        editor::setup_editor_css(self);
+        editor::setup_editor_tags(self);
 
         imp.connect_button.connect_clicked(glib::clone!(
-            #[weak(rename_to = window)]
-            self,
-            move |_| {
-                window.connect_journal();
-            }
-        ));
-
-        imp.choose_repo_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
             move |_| {
                 window.choose_repo_folder();
             }
         ));
+
 
         imp.notes_empty_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
@@ -651,7 +554,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
-                window.toggle_viewer_mode();
+                editor::toggle_viewer_mode(&window);
             }
         ));
 
@@ -695,8 +598,8 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
-                window.refresh_notes_grid();
-                window.update_notes_search_reveal();
+                grid::refresh_notes_grid(&window);
+                grid::update_notes_search_reveal(&window);
             }
         ));
 
@@ -732,7 +635,7 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Proceed;
                 }
 
-                window.start_notes_search(ch);
+                grid::start_notes_search(&window, ch);
                 glib::Propagation::Stop
             }
         ));
@@ -801,9 +704,9 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Proceed;
                 }
                 if dy < 0.0 {
-                    window.adjust_editor_zoom(1);
+                    editor::adjust_editor_zoom(&window, 1);
                 } else if dy > 0.0 {
-                    window.adjust_editor_zoom(-1);
+                    editor::adjust_editor_zoom(&window, -1);
                 }
 
                 glib::Propagation::Stop
@@ -865,7 +768,7 @@ impl PennaFrontendWindow {
                     keyval,
                     gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter
                 ) {
-                    if let Some(button) = window.selected_note_button() {
+                    if let Some(button) = grid::selected_note_button(&window) {
                         let entry_id = button.widget_name().to_string();
                         if !entry_id.is_empty() {
                             window.open_entry(&entry_id);
@@ -876,7 +779,7 @@ impl PennaFrontendWindow {
                 }
 
                 if matches!(keyval, gdk::Key::Delete | gdk::Key::KP_Delete) {
-                    if window.selected_note_button().is_some() {
+                    if grid::selected_note_button(&window).is_some() {
                         window.delete_current_entry();
                         return glib::Propagation::Stop;
                     }
@@ -895,7 +798,7 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Proceed;
                 };
 
-                if window.move_note_focus(direction) {
+                if grid::move_note_focus(&window, direction) {
                     return glib::Propagation::Stop;
                 }
 
@@ -904,241 +807,11 @@ impl PennaFrontendWindow {
         ));
         imp.main_page.add_controller(grid_key_controller);
 
-        self.install_editor_back_swipe();
-        self.install_editor_back_swipe_touchpad();
-        self.load_editor_preferences();
+        gestures::install_editor_back_swipe(self);
+        gestures::install_editor_back_swipe_touchpad(self);
+        editor::load_editor_preferences(self);
         self.show_grid_view();
         self.initialize_repository_state();
-    }
-
-    // NavigationView's built-in back-swipe is a bubble-phase gesture, so it
-    // loses arbitration to the editor's ScrolledWindow once a note is long
-    // enough to scroll and the swipe never fires. Re-adding it as a
-    // capture-phase drag on the editor page makes it the first gesture
-    // consulted, ahead of any descendant. It claims the sequence as soon as
-    // the drag is clearly a rightward swipe from the left edge, which cancels
-    // every descendant gesture (the ScrolledWindow included) before its
-    // bubble phase runs; anything else (vertical scroll, a touch that did not
-    // start at the edge) is denied so the usual scrolling / text behaviour
-    // still works.
-    fn install_editor_back_swipe(&self) {
-        #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-        enum Phase {
-            Ignored,
-            Deciding,
-            Back,
-        }
-        let phase: Rc<Cell<Option<Phase>>> = Rc::new(Cell::new(None));
-
-        let gesture = gtk::GestureDrag::builder().touch_only(true).build();
-        gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
-
-        {
-            let phase = Rc::clone(&phase);
-            gesture.connect_drag_begin(glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                move |gesture, start_x, _| {
-                    let imp = window.imp();
-                    let in_editor = *imp.in_editor_view.borrow();
-                    if !in_editor || start_x > BACK_SWIPE_EDGE_ZONE_PX {
-                        phase.set(Some(Phase::Ignored));
-                        gesture.set_state(gtk::EventSequenceState::Denied);
-                        return;
-                    }
-                    phase.set(Some(Phase::Deciding));
-                }
-            ));
-        }
-
-        {
-            let phase = Rc::clone(&phase);
-            gesture.connect_drag_update(move |gesture, dx, dy| {
-                let current = phase.get();
-                if current != Some(Phase::Deciding) {
-                    return;
-                }
-                if dx >= BACK_SWIPE_EARLY_COMMIT_PX && dx >= dy.abs() {
-                    // Commit before the ScrolledWindow's drag gesture reaches
-                    // its threshold: claiming from a capture phase cancels
-                    // all descendant gestures for this sequence.
-                    phase.set(Some(Phase::Back));
-                    gesture.set_state(gtk::EventSequenceState::Claimed);
-                } else if dx.abs() >= BACK_SWIPE_DECIDE_PX || dy.abs() >= BACK_SWIPE_DECIDE_PX {
-                    // Past the scroll threshold without a rightward commit:
-                    // this is a scroll or other gesture, not a back-swipe.
-                    phase.set(Some(Phase::Ignored));
-                    gesture.set_state(gtk::EventSequenceState::Denied);
-                }
-            });
-        }
-
-        {
-            let phase = Rc::clone(&phase);
-            gesture.connect_drag_end(glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                move |_, dx, _| {
-                    let confirmed =
-                        phase.get() == Some(Phase::Back) && dx >= BACK_SWIPE_MIN_DISTANCE_PX;
-                    phase.set(None);
-                    if confirmed {
-                        window.show_grid_view();
-                    }
-                }
-            ));
-        }
-
-        self.imp().editor_page.add_controller(gesture);
-    }
-
-    // Touchpads never produce touch events: a two-finger swipe arrives as a
-    // smooth scroll stream. libadwaita's NavigationView handles these via a
-    // bubble-phase scroll controller (see adw-swipe-tracker.c), which works
-    // until the editor's ScrolledWindow starts consuming the stream for
-    // vertical scrolling on long notes — the tracker is starved and the
-    // built-in back-swipe dies. So we watch the stream ourselves from a
-    // capture-phase EventControllerScroll on the editor page, mirroring the
-    // tracker's semantics: touchpad swipes are not positional, so no edge
-    // zone applies (its default swipe area is the whole view), and with
-    // natural scrolling a rightward finger push yields NEGATIVE dx (the
-    // tracker likewise maps delta < 0 to back-navigation). Only engage when
-    // the content is actually scrollable — otherwise the built-in tracker
-    // still works and we'd risk double-popping.
-    fn install_editor_back_swipe_touchpad(&self) {
-        #[derive(Clone, Copy)]
-        enum Stream {
-            Idle,
-            Armed { acc_dx: f64, acc_dy: f64 },
-            Done,
-        }
-        let stream: Rc<Cell<Stream>> = Rc::new(Cell::new(Stream::Idle));
-
-        let gesture = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
-        gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
-
-        {
-            let stream = Rc::clone(&stream);
-            gesture.connect_scroll_begin(glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                move |_| {
-                    stream.set(Stream::Idle);
-                    let imp = window.imp();
-                    let in_editor = *imp.in_editor_view.borrow();
-                    // Touchpad swipes are not positional: engage anywhere on
-                    // the page, like libadwaita's own whole-view swipe area.
-                    let armed = in_editor && window.editor_content_scrollable();
-                    if armed {
-                        stream.set(Stream::Armed {
-                            acc_dx: 0.0,
-                            acc_dy: 0.0,
-                        });
-                    }
-                }
-            ));
-        }
-
-        {
-            let stream = Rc::clone(&stream);
-            gesture.connect_scroll(glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                #[upgrade_or_else]
-                || glib::Propagation::Proceed,
-                move |_, dx, dy| {
-                    match stream.get() {
-                        Stream::Idle => glib::Propagation::Proceed,
-                        Stream::Done => glib::Propagation::Stop,
-                        Stream::Armed {
-                            mut acc_dx,
-                            mut acc_dy,
-                        } => {
-                            acc_dx += dx;
-                            acc_dy += dy;
-                            if acc_dx.abs().max(acc_dy.abs()) >= BACK_SWIPE_TOUCHPAD_DECIDE_PX {
-                                // Natural scrolling: a rightward finger push
-                                // arrives as negative dx, matching how the
-                                // tracker maps delta < 0 to back-navigation.
-                                if acc_dx < 0.0 && -acc_dx >= acc_dy.abs() {
-                                    if -acc_dx >= BACK_SWIPE_TOUCHPAD_POP_PX {
-                                        window.show_grid_view();
-                                        stream.set(Stream::Done);
-                                        return glib::Propagation::Stop;
-                                    }
-                                } else {
-                                    stream.set(Stream::Idle);
-                                    return glib::Propagation::Proceed;
-                                }
-                            }
-                            stream.set(Stream::Armed { acc_dx, acc_dy });
-                            glib::Propagation::Proceed
-                        }
-                    }
-                }
-            ));
-        }
-
-        {
-            let stream = Rc::clone(&stream);
-            gesture.connect_scroll_end(move |_| {
-                stream.set(Stream::Idle);
-            });
-        }
-
-        self.imp().editor_page.add_controller(gesture);
-    }
-
-    fn editor_content_scrollable(&self) -> bool {
-        self.imp()
-            .editor_view
-            .ancestor(gtk::ScrolledWindow::static_type())
-            .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
-            .is_some_and(|scrolled| {
-                let adj = scrolled.vadjustment();
-                adj.upper() > adj.page_size() + 1.0
-            })
-    }
-
-    fn load_editor_preferences(&self) {
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let viewer_mode = settings.boolean(SETTINGS_EDITOR_VIEWER_MODE_KEY);
-        *self.imp().editor_viewer_mode.borrow_mut() = viewer_mode;
-        self.apply_editor_mode();
-    }
-
-    fn toggle_viewer_mode(&self) {
-        let imp = self.imp();
-        let next = !*imp.editor_viewer_mode.borrow();
-        *imp.editor_viewer_mode.borrow_mut() = next;
-
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let _ = settings.set_boolean(SETTINGS_EDITOR_VIEWER_MODE_KEY, next);
-
-        self.apply_editor_mode();
-    }
-
-    fn apply_editor_mode(&self) {
-        let imp = self.imp();
-        let viewer_mode = *imp.editor_viewer_mode.borrow();
-
-        imp.editor_view.set_editable(!viewer_mode);
-        imp.editor_view.set_cursor_visible(!viewer_mode);
-        imp.editor_view.set_can_focus(true);
-        imp.editor_view.set_can_target(!viewer_mode);
-        imp.editor_view
-            .set_cursor_from_name(if viewer_mode { Some("default") } else { None });
-        imp.viewer_mode_button.set_icon_name(if viewer_mode {
-            "view-conceal-symbolic"
-        } else {
-            "view-reveal-symbolic"
-        });
-        imp.viewer_mode_button
-            .set_tooltip_text(Some(if viewer_mode {
-                "Turn off viewer mode"
-            } else {
-                "Turn on viewer mode"
-            }));
     }
 
     fn wrap_selection(&self, prefix: &str, suffix: &str) {
@@ -1476,294 +1149,34 @@ impl PennaFrontendWindow {
         true
     }
 
-    fn setup_editor_css(&self) {
-        let provider = gtk::CssProvider::new();
-        *self.imp().editor_css_provider.borrow_mut() = Some(provider.clone());
-        self.apply_editor_css();
-
-        if let Some(display) = gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(
-                &display,
-                &provider,
-                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
-        }
-    }
-
-    fn apply_editor_css(&self) {
-        let imp = self.imp();
-        let font_size = *imp.editor_font_size_pt.borrow();
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
-        let custom_font = settings.string(SETTINGS_EDITOR_FONT_CUSTOM_KEY).to_string();
-
-        let font_family_rule = match font_preset.as_str() {
-            "sans" => "font-family: \"Adwaita Sans\", Sans;".to_string(),
-            "serif" => "font-family: \"Free Serif\", Serif;".to_string(),
-            "custom" => {
-                let trimmed = custom_font.trim();
-                if trimmed.is_empty() {
-                    "font-family: \"Adwaita Sans\", Sans;".to_string()
-                } else {
-                    let escaped = trimmed.replace('"', "\\\"");
-                    format!("font-family: \"{escaped}\", Sans;")
-                }
-            }
-            _ => "font-family: \"Adwaita Sans\", Sans;".to_string(),
-        };
-
-        if let Some(provider) = imp.editor_css_provider.borrow().as_ref() {
-            provider.load_from_string(&format!(
-                ".immersive-editor, .immersive-editor text {{\
-                    background-color: transparent;\
-                    background-image: none;\
-                    {font_family_rule}\
-                    font-size: {font_size}pt;\
-                }}\
-                .immersive-editor {{\
-                    border-radius: 0;\
-                }}\
-                .note-row {{\
-                    padding: 4px 2px;\
-                    border-radius: 10px;\
-                }}\
-                /* Hover/press/selection shading is drawn entirely by the\
-                 * button as one layered rectangle; the surrounding\
-                 * flowboxchild would otherwise stack its own tint (see\
-                 * libadwaita _views.scss) and double up the highlight. */\
-                flowbox.notes-grid > flowboxchild:hover,\
-                flowbox.notes-grid > flowboxchild:active {{\
-                    background: none;\
-                }}\
-                .note-row:hover {{\
-                    background-color: alpha(currentColor, 0.07);\
-                }}\
-                .note-row:active {{\
-                    background-color: alpha(currentColor, 0.12);\
-                }}\
-                flowbox.notes-grid > flowboxchild.note-current {{\
-                    border-radius: 10px;\
-                    background-color: alpha(currentColor, 0.06);\
-                }}\
-                flowbox.notes-grid > flowboxchild.note-current:hover {{\
-                    background-color: alpha(currentColor, 0.10);\
-                }}\
-                flowbox.notes-grid > flowboxchild.note-current:active {{\
-                    background-color: alpha(currentColor, 0.13);\
-                }}\
-                .note-row:focus, .note-row:focus-visible, .note-row:focus:focus-visible {{\
-                    outline: none;\
-                }}\
-                flowbox.notes-grid > flowboxchild:focus, \
-                flowbox.notes-grid > flowboxchild:focus-visible, \
-                flowbox.notes-grid > flowboxchild:focus:focus-visible {{\
-                    outline: none;\
-                }}\
-                .note-tags {{\
-                    min-width: 0;\
-                }}\
-                .tag-chip {{\
-                    background-color: alpha(currentColor, 0.10);\
-                    border-radius: 999px;\
-                    padding: 4px 10px;\
-                }}\
-                .tag-chip label {{\
-                    font-size: 0.9em;\
-                }}"
-            ));
-        }
-    }
-
-    fn setup_editor_tags(&self) {
-        let buffer = self.imp().editor_view.buffer();
-        let table = buffer.tag_table();
-
-        let add_tag = |tag: &gtk::TextTag| {
-            if table
-                .lookup(tag.name().as_deref().unwrap_or_default())
-                .is_none()
-            {
-                table.add(tag);
-            }
-        };
-
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_1)
-                .weight(700)
-                .scale(1.8)
-                .line_height(1.8)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_2)
-                .weight(700)
-                .scale(1.5)
-                .line_height(1.6)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_3)
-                .weight(700)
-                .scale(1.25)
-                .line_height(1.4)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_4)
-                .weight(700)
-                .scale(1.1)
-                .line_height(1.4)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_BLOCKQUOTE)
-                .style(pango::Style::Italic)
-                .left_margin(18)
-                .line_height(1.2)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CODE)
-                .family("monospace")
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CODE_BLOCK)
-                .family("monospace")
-                .left_margin(18)
-                .right_margin(18)
-                .line_height(1.2)
-                .build(),
-        );
-        add_tag(&gtk::TextTag::builder().name(TAG_BOLD).weight(700).build());
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_ITALIC)
-                .style(pango::Style::Italic)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_STRIKETHROUGH)
-                .strikethrough(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_SYNTAX)
-                .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
-                .scale(0.01)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_LIST_MARKER)
-                .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
-                .weight(500)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_LIST_ITEM)
-                .left_margin(18)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_LINK)
-                .underline(pango::Underline::Single)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CHECKED)
-                .strikethrough(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_RULE)
-                .scale(0.85)
-                .weight(700)
-                .justification(gtk::Justification::Center)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CONFLICT_CURRENT)
-                .background_rgba(&gdk::RGBA::new(0.30, 0.69, 0.31, 0.16))
-                .background_full_height(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CONFLICT_INCOMING)
-                .background_rgba(&gdk::RGBA::new(0.16, 0.50, 0.85, 0.16))
-                .background_full_height(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CONFLICT_MARKER)
-                .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
-                .style(pango::Style::Italic)
-                .build(),
-        );
-    }
-
-    fn adjust_editor_zoom(&self, delta: i32) {
-        let imp = self.imp();
-        let next_size = (*imp.editor_font_size_pt.borrow() + delta)
-            .clamp(EDITOR_FONT_SIZE_MIN_PT, EDITOR_FONT_SIZE_MAX_PT);
-
-        if next_size == *imp.editor_font_size_pt.borrow() {
-            return;
-        }
-
-        self.set_editor_font_size_pt(next_size);
-    }
-
     fn initialize_repository_state(&self) {
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let repo_path = settings.string(SETTINGS_REPOSITORY_PATH_KEY).to_string();
+        let repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
 
         if repo_path.trim().is_empty() {
             self.show_setup_page();
             return;
         }
 
-        let imp = self.imp();
-        imp.repo_path_entry.set_text(&repo_path);
-        self.connect_journal();
+        self.connect_journal(&repo_path);
     }
 
-    fn connect_journal(&self) {
+    fn connect_journal(&self, repo_path: &str) {
         let imp = self.imp();
         self.stop_entries_monitor();
-        let repo_path = imp.repo_path_entry.text().trim().to_string();
+        let repo_path = repo_path.trim().to_string();
         if repo_path.is_empty() {
             imp.setup_status_label.set_label(&i18n::repo_path_required());
             return;
         }
 
-        let connect_result = {
-            let mut engine = imp.engine.lock().unwrap();
-            engine.connect_journal(&repo_path)
-        };
+        let connect_result = sync::connect_journal(self, &repo_path);
 
         match connect_result {
             Ok(result) => {
                 *imp.current_handle.borrow_mut() = Some(result.journal_handle);
 
-                let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-                let _ = settings.set_string(SETTINGS_REPOSITORY_PATH_KEY, &repo_path);
+                let _ =
+                    settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, &repo_path);
 
                 let sync_message = match result.journal_kind {
                     JournalKind::New => "New diary initialized and connected",
@@ -1778,7 +1191,7 @@ impl PennaFrontendWindow {
                 imp.sync_status_label.set_label(&details);
                 imp.setup_status_label.set_label(&details);
 
-                self.refresh_notes_grid();
+                grid::refresh_notes_grid(self);
                 self.start_repo_watchers();
                 self.show_main_page();
                 self.show_grid_view();
@@ -1804,10 +1217,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let outcome = {
-            let engine = imp.engine.lock().unwrap();
-            engine.sync_journal(handle)
-        };
+        let outcome = sync::sync_journal(self, handle);
 
         match outcome {
             Ok(outcome) => self.handle_sync_outcome(&outcome),
@@ -1823,7 +1233,7 @@ impl PennaFrontendWindow {
 
     fn handle_sync_outcome(&self, outcome: &SyncOutcome) {
         let imp = self.imp();
-        self.refresh_notes_grid();
+        grid::refresh_notes_grid(self);
 
         let message = sync_status_message(outcome);
         imp.sync_status_label.set_label(&message);
@@ -1845,18 +1255,14 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let merge_pending = imp
-            .engine
-            .lock()
-            .unwrap()
-            .journal_status(handle)
-            .is_some_and(|status| status.merge_in_progress);
+        let merge_pending =
+            sync::journal_status(self, handle).is_some_and(|status| status.merge_in_progress);
 
         if !merge_pending {
             return;
         }
 
-        let outcome = imp.engine.lock().unwrap().sync_journal(handle);
+        let outcome = sync::sync_journal(self, handle);
         match outcome {
             Ok(outcome) if outcome.conflicted_entry_ids.is_empty() => {
                 self.handle_sync_outcome(&outcome);
@@ -1869,334 +1275,6 @@ impl PennaFrontendWindow {
                 .sync_status_label
                 .set_label(&i18n::sync_failed(&err)),
         }
-    }
-
-    fn refresh_notes_grid(&self) {
-        let imp = self.imp();
-        let Some(handle) = *imp.current_handle.borrow() else {
-            return;
-        };
-
-        let query = imp.notes_search_entry.text().trim().to_lowercase();
-
-        while let Some(child) = imp.notes_flowbox.first_child() {
-            imp.notes_flowbox.remove(&child);
-        }
-
-        let entries = {
-            let engine = imp.engine.lock().unwrap();
-            engine.list_entries(handle)
-        };
-
-        // Notes still conflicted mid-merge get a warning badge so unresolved
-        // sync state is visible without opening each note.
-        let conflicted_ids = {
-            let engine = imp.engine.lock().unwrap();
-            engine.conflicted_entry_ids(handle)
-        };
-
-        let mut first_visible_button: Option<gtk::Button> = None;
-
-        for entry in &entries {
-            let content = {
-                let engine = imp.engine.lock().unwrap();
-                engine
-                    .get_entry(handle, &entry.entry_id)
-                    .map(|item| item.content)
-                    .unwrap_or_default()
-            };
-
-            if !Self::entry_matches_query(&entry.entry_id, &content, &entry.tags, &query) {
-                continue;
-            }
-
-            let button = gtk::Button::new();
-            button.add_css_class("flat");
-            button.add_css_class("note-row");
-            button.set_hexpand(true);
-            button.set_halign(gtk::Align::Fill);
-            button.set_widget_name(&entry.entry_id);
-
-            let row_box = gtk::CenterBox::new();
-            row_box.set_margin_top(8);
-            row_box.set_margin_bottom(8);
-            row_box.set_margin_start(8);
-            row_box.set_margin_end(8);
-            row_box.set_hexpand(true);
-
-            let note_label = gtk::Label::new(Some(&Self::format_entry_date(&entry.entry_id)));
-            note_label.set_hexpand(true);
-            note_label.set_halign(gtk::Align::Start);
-            note_label.set_xalign(0.0);
-            note_label.set_ellipsize(pango::EllipsizeMode::End);
-
-            let tags_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            tags_box.add_css_class("note-tags");
-            tags_box.set_halign(gtk::Align::End);
-            tags_box.set_valign(gtk::Align::Center);
-
-            let tags_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            tags_spacer.set_hexpand(true);
-
-            let tags_inner = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-            tags_inner.set_halign(gtk::Align::End);
-            tags_inner.set_valign(gtk::Align::Center);
-
-            tags_box.append(&tags_spacer);
-            tags_box.append(&tags_inner);
-
-            row_box.set_start_widget(Some(&note_label));
-            if !entry.tags.is_empty() {
-                for tag in Self::visible_tags_for_row(&entry.tags) {
-                    tags_inner.append(&Self::build_tag_chip(tag));
-                }
-                let hidden_tags = Self::hidden_tag_count_for_row(&entry.tags);
-                if hidden_tags > 0 {
-                    tags_inner.append(&Self::build_tag_chip(&format!("+{hidden_tags}")));
-                }
-            }
-            row_box.set_end_widget(Some(&tags_box));
-            if conflicted_ids.iter().any(|id| id == &entry.entry_id) {
-                let conflict_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
-                conflict_icon.set_tooltip_text(Some(&i18n::unresolved_sync_conflict()));
-                conflict_icon.add_css_class("warning");
-                conflict_icon.set_margin_end(8);
-                row_box.set_center_widget(Some(&conflict_icon));
-            }
-            button.set_child(Some(&row_box));
-
-            let entry_id = entry.entry_id.clone();
-            button.connect_clicked(glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                #[strong]
-                entry_id,
-                move |_| {
-                    window.select_note(Some(&entry_id));
-                    window.open_entry(entry_id.as_str());
-                }
-            ));
-            if first_visible_button.is_none() {
-                first_visible_button = Some(button.clone());
-            }
-            imp.notes_flowbox.insert(&button, -1);
-        }
-
-        // Show the inviting empty state only when the journal has no notes at
-        // all. A search that matches nothing leaves the grid empty but does
-        // not show the "create your first note" prompt.
-        imp.notes_empty_state.set_visible(entries.is_empty());
-
-        // Keep highlighting a stable selection across refreshes; if the
-        // previously selected note is gone (deleted, filtered out), fall back
-        // to the first visible row so something is always selected.
-        let buttons = self.note_buttons();
-        let selected_still_visible = imp
-            .grid_selected_entry_id
-            .borrow()
-            .as_deref()
-            .is_some_and(|id| buttons.iter().any(|button| button.widget_name() == id));
-        if !selected_still_visible {
-            *imp.grid_selected_entry_id.borrow_mut() =
-                buttons.first().map(|b| b.widget_name().to_string());
-        }
-        self.refresh_grid_selection();
-
-        if query.is_empty() && *imp.in_notes_grid_view.borrow() {
-            if let Some(button) = first_visible_button {
-                button.grab_focus();
-            }
-        }
-
-        if let Some(status) = imp.engine.lock().unwrap().journal_status(handle) {
-            let mut details = format!(
-                "Branch: {} | head: {} | dirty: {} | entries: {}",
-                status.branch, status.head_commit, status.dirty, status.entry_count
-            );
-            if status.merge_in_progress {
-                details.push_str(&format!(
-                    " | merge in progress: {} unresolved",
-                    status.conflicted_entry_ids.len()
-                ));
-            }
-            imp.sync_status_label.set_label(&details);
-        }
-    }
-
-    fn entry_matches_query(entry_id: &str, content: &str, tags: &[String], query: &str) -> bool {
-        if query.is_empty() {
-            return true;
-        }
-
-        let entry_id = entry_id.to_lowercase();
-        let content = content.to_lowercase();
-        let tags = tags.join(" ").to_lowercase();
-        entry_id.contains(query) || content.contains(query) || tags.contains(query)
-    }
-
-    fn note_buttons(&self) -> Vec<gtk::Button> {
-        let imp = self.imp();
-        let mut out = Vec::new();
-        let mut child = imp.notes_flowbox.first_child();
-
-        while let Some(flow_child) = child {
-            if let Some(inner) = flow_child.first_child() {
-                if let Ok(button) = inner.downcast::<gtk::Button>() {
-                    out.push(button);
-                }
-            }
-            child = flow_child.next_sibling();
-        }
-
-        out
-    }
-
-    fn selected_note_button(&self) -> Option<gtk::Button> {
-        let selected = self.imp().grid_selected_entry_id.borrow().clone()?;
-        self.note_buttons()
-            .into_iter()
-            .find(|button| button.widget_name() == selected.as_str())
-    }
-
-    /// Marks `entry_id` as the grid's current selection and paints the
-    /// persistent highlight. Selection is independent of GTK keyboard-focus
-    /// visibility, so it is visible before any arrow key is pressed.
-    fn select_note(&self, entry_id: Option<&str>) {
-        *self.imp().grid_selected_entry_id.borrow_mut() = entry_id.map(str::to_string);
-        self.refresh_grid_selection();
-    }
-
-    fn refresh_grid_selection(&self) {
-        let selected = self.imp().grid_selected_entry_id.borrow().clone();
-        for button in self.note_buttons() {
-            let is_selected = selected.as_deref() == Some(button.widget_name().as_str());
-            // Paint the selection on the flowboxchild wrapper, not the
-            // button: libadwaita draws hover/active feedback on that same
-            // wrapper, so keeping one painted layer avoids stacked tints.
-            if let Some(wrapper) = button
-                .parent()
-                .and_then(|widget| widget.downcast::<gtk::FlowBoxChild>().ok())
-            {
-                if is_selected {
-                    wrapper.add_css_class("note-current");
-                } else {
-                    wrapper.remove_css_class("note-current");
-                }
-            }
-        }
-    }
-
-    fn notes_grid_column_count(&self, total_buttons: usize, buttons: &[gtk::Button]) -> usize {
-        if total_buttons <= 1 {
-            return 1;
-        }
-
-        let imp = self.imp();
-        let flowbox_width = imp.notes_flowbox.width();
-        let column_spacing = i32::try_from(imp.notes_flowbox.column_spacing()).unwrap_or(i32::MAX);
-        let max_per_line = imp.notes_flowbox.max_children_per_line().max(1) as usize;
-        let sample_width = buttons.first().map(|b| b.width()).unwrap_or(0);
-
-        if flowbox_width <= 0 || sample_width <= 0 {
-            return max_per_line.min(total_buttons).max(1);
-        }
-
-        let slot = sample_width + column_spacing;
-        if slot <= 0 {
-            return max_per_line.min(total_buttons).max(1);
-        }
-
-        let computed = ((flowbox_width + column_spacing) / slot).max(1) as usize;
-        computed.min(max_per_line).min(total_buttons).max(1)
-    }
-
-    fn move_note_focus(&self, direction: &str) -> bool {
-        let buttons = self.note_buttons();
-        if buttons.is_empty() {
-            return false;
-        }
-
-        let selected_id = self.imp().grid_selected_entry_id.borrow().clone();
-        let current = buttons
-            .iter()
-            .position(|button| selected_id.as_deref() == Some(button.widget_name().as_str()))
-            .unwrap_or(0);
-        let cols = self.notes_grid_column_count(buttons.len(), &buttons);
-        let rows = buttons.len().div_ceil(cols);
-        let current_row = current / cols;
-        let current_col = current % cols;
-
-        let target = match direction {
-            "left" => {
-                if current_col == 0 {
-                    None
-                } else {
-                    Some(current - 1)
-                }
-            }
-            "right" => {
-                let next = current + 1;
-                if next < buttons.len() && (next / cols) == current_row {
-                    Some(next)
-                } else {
-                    None
-                }
-            }
-            "up" => {
-                if current_row == 0 {
-                    None
-                } else {
-                    Some(current - cols)
-                }
-            }
-            "down" => {
-                if current_row + 1 >= rows {
-                    None
-                } else {
-                    let next = current + cols;
-                    if next < buttons.len() {
-                        Some(next)
-                    } else {
-                        // Last row may be short: land on its last item.
-                        Some(buttons.len() - 1)
-                    }
-                }
-            }
-            _ => None,
-        };
-
-        if let Some(target_idx) = target {
-            if let Some(button) = buttons.get(target_idx) {
-                self.select_note(Some(&button.widget_name()));
-                button.grab_focus();
-                return true;
-            }
-        }
-
-        false
-    }
-
-    fn start_notes_search(&self, ch: char) {
-        let imp = self.imp();
-        if *imp.in_editor_view.borrow() || !*imp.in_notes_grid_view.borrow() {
-            return;
-        }
-
-        let mut text = imp.notes_search_entry.text().to_string();
-        text.push(ch);
-        imp.notes_search_revealer.set_reveal_child(true);
-        imp.notes_search_entry.set_text(&text);
-        imp.notes_search_entry
-            .set_position(text.chars().count() as i32);
-        imp.notes_search_entry.grab_focus();
-    }
-
-    fn update_notes_search_reveal(&self) {
-        let imp = self.imp();
-        let reveal = *imp.in_notes_grid_view.borrow()
-            && !*imp.in_editor_view.borrow()
-            && !imp.notes_search_entry.text().trim().is_empty();
-        imp.notes_search_revealer.set_reveal_child(reveal);
     }
 
     fn follow_editor_cursor_now(&self) {
@@ -2259,18 +1337,13 @@ impl PennaFrontendWindow {
         }
     }
 
-    fn open_entry(&self, entry_id: &str) {
+    pub(crate) fn open_entry(&self, entry_id: &str) {
         let imp = self.imp();
         let Some(handle) = *imp.current_handle.borrow() else {
             return;
         };
 
-        let content = {
-            let engine = imp.engine.lock().unwrap();
-            engine.get_entry(handle, entry_id)
-        };
-
-        let Some(entry) = content else {
+        let Some(entry) = sync::get_entry(self, handle, entry_id) else {
             return;
         };
 
@@ -2281,7 +1354,7 @@ impl PennaFrontendWindow {
         // Loading content fires the change handler above; the freshly loaded
         // note is by definition saved.
         self.set_entry_modified(false);
-        self.apply_editor_mode();
+        editor::apply_editor_mode(self);
         self.apply_markdown_styling();
         self.show_editor_view();
     }
@@ -2316,16 +1389,13 @@ impl PennaFrontendWindow {
 
         let tags = imp.current_entry_tags.borrow().clone();
 
-        let save_result = {
-            let mut engine = imp.engine.lock().unwrap();
-            engine.entry_save(handle, &entry_id, &content, &tags)
-        };
+        let save_result = sync::entry_save(self, handle, &entry_id, &content, &tags);
 
         match save_result {
             Ok(()) => {
                 self.set_entry_modified(false);
                 imp.sync_status_label.set_label(&i18n::saved());
-                self.refresh_notes_grid();
+                grid::refresh_notes_grid(self);
                 self.show_editor_view();
                 self.maybe_conclude_merge();
             }
@@ -2344,10 +1414,7 @@ impl PennaFrontendWindow {
         // One note per day: if today already has an entry, redirect to it
         // instead of creating a duplicate.
         let today = chrono::Local::now().format("%Y%m%d").to_string();
-        let existing = {
-            let engine = imp.engine.lock().unwrap();
-            Self::entry_id_for_day(&engine.list_entries(handle), &today)
-        };
+        let existing = Self::entry_id_for_day(&sync::list_entries(self, handle), &today);
 
         if let Some(existing) = existing {
             let toast = adw::Toast::new(&i18n::opened_todays_note());
@@ -2356,14 +1423,11 @@ impl PennaFrontendWindow {
             return;
         }
 
-        let record = {
-            let mut engine = imp.engine.lock().unwrap();
-            match engine.create_entry_new(handle) {
-                Ok(record) => record,
-                Err(err) => {
-                    imp.sync_status_label.set_label(&err);
-                    return;
-                }
+        let record = match sync::create_entry_new(self, handle) {
+            Ok(record) => record,
+            Err(err) => {
+                imp.sync_status_label.set_label(&err);
+                return;
             }
         };
 
@@ -2372,10 +1436,10 @@ impl PennaFrontendWindow {
         self.update_window_title(Some(&record.entry_id));
         imp.editor_view.buffer().set_text(&record.content);
         self.set_entry_modified(false);
-        self.apply_editor_mode();
+        editor::apply_editor_mode(self);
         self.apply_markdown_styling();
         self.show_editor_view();
-        self.refresh_notes_grid();
+        grid::refresh_notes_grid(self);
     }
 
     fn delete_current_entry(&self) {
@@ -2386,7 +1450,7 @@ impl PennaFrontendWindow {
             return;
         };
         let entry_id = if *imp.in_notes_grid_view.borrow() {
-            self.selected_note_button()
+            grid::selected_note_button(self)
                 .map(|button| button.widget_name().to_string())
                 .or_else(|| imp.current_entry_id.borrow().clone())
         } else {
@@ -2398,14 +1462,11 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let snapshot = {
-            let mut engine = imp.engine.lock().unwrap();
-            match engine.delete_entry_with_snapshot(handle, &entry_id) {
-                Ok(snapshot) => snapshot,
-                Err(err) => {
-                    imp.sync_status_label.set_label(&err);
-                    return;
-                }
+        let snapshot = match sync::delete_entry_with_snapshot(self, handle, &entry_id) {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                imp.sync_status_label.set_label(&err);
+                return;
             }
         };
 
@@ -2413,7 +1474,7 @@ impl PennaFrontendWindow {
         imp.current_entry_tags.borrow_mut().clear();
         self.set_entry_modified(false);
         self.show_grid_view();
-        self.refresh_notes_grid();
+        grid::refresh_notes_grid(self);
         self.show_delete_undo_toast(snapshot);
     }
 
@@ -2451,15 +1512,12 @@ impl PennaFrontendWindow {
                     return;
                 };
 
-                let result = {
-                    let mut engine = window_imp.engine.lock().unwrap();
-                    engine.restore_entry(handle, &snapshot)
-                };
+                let result = sync::restore_entry(&window, handle, &snapshot);
 
                 match result {
                     Ok(record) => {
                         window_imp.sync_status_label.set_label(&i18n::note_restored());
-                        window.refresh_notes_grid();
+                        grid::refresh_notes_grid(&window);
                         window.open_entry(&record.entry_id);
                     }
                     Err(err) => {
@@ -2475,7 +1533,7 @@ impl PennaFrontendWindow {
 
     fn choose_repo_folder(&self) {
         let dialog = gtk::FileDialog::builder()
-            .title("Choose journal repository")
+            .title(i18n::choose_repository_folder().as_str())
             .accept_label("Select")
             .modal(true)
             .build();
@@ -2490,10 +1548,7 @@ impl PennaFrontendWindow {
                     if let Ok(file) = result {
                         if let Some(path) = file.path() {
                             let path_str = path.to_string_lossy().to_string();
-                            let imp = window.imp();
-                            imp.repo_path_entry.set_text(&path_str);
-                            imp.setup_status_label
-                                .set_label(&i18n::repository_selected_click_connect());
+                            window.connect_journal(&path_str);
                         }
                     }
                 }
@@ -2509,10 +1564,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let initial_fingerprint = {
-            let engine = imp.engine.lock().unwrap();
-            engine.entries_fingerprint(handle).ok()
-        };
+        let initial_fingerprint = sync::entries_fingerprint(self, handle).ok();
         *imp.last_entries_fingerprint.borrow_mut() = initial_fingerprint;
 
         self.start_entries_monitor();
@@ -2525,10 +1577,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let watch_path = {
-            let engine = imp.engine.lock().unwrap();
-            engine.entries_directory(handle)
-        };
+        let watch_path = sync::entries_directory(self, handle);
 
         let Some(watch_path) = watch_path else {
             return;
@@ -2614,10 +1663,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let fingerprint = {
-            let engine = imp.engine.lock().unwrap();
-            engine.entries_fingerprint(handle)
-        };
+        let fingerprint = sync::entries_fingerprint(self, handle);
 
         match fingerprint {
             Ok(current) => {
@@ -2639,19 +1685,13 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let reload_result = {
-            let mut engine = imp.engine.lock().unwrap();
-            engine.reload_entries(handle)
-        };
+        let reload_result = sync::reload_entries(self, handle);
 
         match reload_result {
             Ok(count) => {
-                self.refresh_notes_grid();
+                grid::refresh_notes_grid(self);
 
-                let new_fingerprint = {
-                    let engine = imp.engine.lock().unwrap();
-                    engine.entries_fingerprint(handle).ok()
-                };
+                let new_fingerprint = sync::entries_fingerprint(self, handle).ok();
                 *imp.last_entries_fingerprint.borrow_mut() = new_fingerprint;
 
                 imp.sync_status_label
@@ -2674,67 +1714,10 @@ impl PennaFrontendWindow {
             .max()
     }
 
-    fn format_entry_date(entry_id: &str) -> String {
-        let Some(timestamp) = Self::parse_entry_timestamp(entry_id) else {
-            return entry_id.to_string();
-        };
-
-        let fmt = Self::effective_entry_datetime_format();
-        // `write_to` returns a Result instead of panicking: some valid format
-        // items (e.g. `%z`, timezone offset) parse fine but cannot be rendered
-        // for a `NaiveDateTime`, making chrono's `Display` return an error.
-        // Fall back to the default format so a bad persisted setting degrades
-        // to a normal date instead of crashing startup.
-        let mut buffer = String::new();
-        if timestamp.value.format(&fmt).write_to(&mut buffer).is_err() {
-            buffer.clear();
-            let _ = timestamp
-                .value
-                .format(ENTRY_DATETIME_FORMAT_DEFAULT)
-                .write_to(&mut buffer);
-        }
-        if buffer.is_empty() {
-            return entry_id.to_string();
-        }
-        buffer
-    }
-
-    fn parse_entry_timestamp(entry_id: &str) -> Option<EntryTimestamp> {
-        let stem = entry_id.strip_suffix(".md")?;
-        if stem.len() != 12 || !stem.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-
-        let timestamp = NaiveDateTime::parse_from_str(stem, "%Y%m%d%H%M").ok()?;
-        Some(EntryTimestamp { value: timestamp })
-    }
-
-    fn effective_entry_datetime_format() -> String {
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let raw = settings
-            .string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY)
-            .to_string();
-        let candidate = if raw.trim().is_empty() {
-            ENTRY_DATETIME_FORMAT_DEFAULT
-        } else {
-            raw.trim()
-        };
-
-        if Self::is_valid_chrono_format(candidate) {
-            candidate.to_string()
-        } else {
-            ENTRY_DATETIME_FORMAT_DEFAULT.to_string()
-        }
-    }
-
-    fn is_valid_chrono_format(format: &str) -> bool {
-        !StrftimeItems::new(format).any(|item| matches!(item, Item::Error))
-    }
-
     fn update_window_title(&self, entry_id: Option<&str>) {
         let imp = self.imp();
         let base = entry_id
-            .map(Self::format_entry_date)
+            .map(format::format_entry_date)
             .filter(|text| !text.is_empty())
             .map(|text| text.to_string())
             .unwrap_or_else(i18n::diary_title);
@@ -2757,49 +1740,6 @@ impl PennaFrontendWindow {
         }
         *imp.modified.borrow_mut() = modified;
         self.update_window_title(imp.current_entry_id.borrow().as_deref());
-    }
-
-    fn visible_tags_for_row(tags: &[String]) -> Vec<&str> {
-        let mut visible = Vec::new();
-        let mut used_chars = 0usize;
-
-        for tag in tags {
-            let tag_chars = tag.chars().count();
-            let next_cost = if visible.is_empty() {
-                tag_chars
-            } else {
-                tag_chars + 1
-            };
-
-            if !visible.is_empty() && used_chars + next_cost > NOTE_ROW_TAGS_MAX_CHARS {
-                break;
-            }
-
-            visible.push(tag.as_str());
-            used_chars += next_cost;
-        }
-
-        if visible.is_empty() && !tags.is_empty() {
-            visible.push(tags[0].as_str());
-        }
-
-        visible
-    }
-
-    fn hidden_tag_count_for_row(tags: &[String]) -> usize {
-        tags.len()
-            .saturating_sub(Self::visible_tags_for_row(tags).len())
-    }
-
-    fn build_tag_chip(tag: &str) -> gtk::Box {
-        let chip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        chip.add_css_class("tag-chip");
-
-        let label = gtk::Label::new(Some(tag));
-        label.add_css_class("caption");
-        chip.append(&label);
-
-        chip
     }
 
     fn open_tags_dialog(&self) {
@@ -2875,10 +1815,7 @@ impl PennaFrontendWindow {
         pages.add_named(&empty_page, Some("empty"));
         content.append(&pages);
 
-        let available_tags = Rc::new(RefCell::new({
-            let engine = imp.engine.lock().unwrap();
-            engine.list_tags(handle)
-        }));
+        let available_tags = Rc::new(RefCell::new(sync::list_tags(self, handle)));
         let current_tags = Rc::new(RefCell::new(imp.current_entry_tags.borrow().clone()));
         type RenderRowsHandle = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
         let render_rows_handle: RenderRowsHandle = Rc::new(RefCell::new(None));
@@ -2893,7 +1830,7 @@ impl PennaFrontendWindow {
                 let mut tags = current_tags.borrow().clone();
                 tags.sort_unstable();
                 for tag in tags {
-                    chips_flow.append(&Self::build_tag_chip(&tag));
+                    chips_flow.append(&grid::build_tag_chip(&tag));
                 }
             })
         };
@@ -2912,19 +1849,16 @@ impl PennaFrontendWindow {
                 #[strong]
                 entry_id,
                 move |tag: &str, attach: bool| {
-                    let result = {
-                        let mut engine = window.imp().engine.lock().unwrap();
-                        if attach {
-                            engine.add_tag(handle, &entry_id, tag)
-                        } else {
-                            engine.remove_tag(handle, &entry_id, tag)
-                        }
+                    let result = if attach {
+                        sync::add_tag(&window, handle, &entry_id, tag)
+                    } else {
+                        sync::remove_tag(&window, handle, &entry_id, tag)
                     };
 
                     if let Ok(tags) = result {
                         *current_tags.borrow_mut() = tags.clone();
                         *window.imp().current_entry_tags.borrow_mut() = tags;
-                        window.refresh_notes_grid();
+                        grid::refresh_notes_grid(&window);
                         render_chips();
 
                         let mut iter = list_box.first_child();
@@ -2965,10 +1899,7 @@ impl PennaFrontendWindow {
                         return;
                     }
 
-                    let result = {
-                        let mut engine = window.imp().engine.lock().unwrap();
-                        engine.add_tag(handle, &entry_id, &tag)
-                    };
+                    let result = sync::add_tag(&window, handle, &entry_id, &tag);
 
                     if let Ok(tags) = result {
                         if !available_tags
@@ -2982,7 +1913,7 @@ impl PennaFrontendWindow {
                         *current_tags.borrow_mut() = tags.clone();
                         *window.imp().current_entry_tags.borrow_mut() = tags;
                         search_entry.set_text("");
-                        window.refresh_notes_grid();
+                        grid::refresh_notes_grid(&window);
                         render_chips();
 
                         if let Some(render_rows) = render_rows_handle.borrow().as_ref() {
@@ -3380,33 +2311,13 @@ impl PennaFrontendWindow {
     }
 
     fn apply_conflict_styling(buffer: &gtk::TextBuffer, text: &str) {
-        let spans = conflict_style_spans(text);
-        if spans.is_empty() {
-            return;
-        }
-
-        let mut line_bounds: Vec<(usize, usize)> = Vec::new();
-        let mut position = 0usize;
-        for line in text.split_inclusive('\n') {
-            let width = line.chars().count();
-            line_bounds.push((
-                position,
-                position + width - line.trim_end_matches('\n').chars().count(),
-            ));
-            position += width;
-        }
-
-        for span in spans {
-            let tag_name = match span.kind {
+        for range in conflict_style_char_ranges(text) {
+            let tag_name = match range.kind {
                 ConflictSpanKind::CurrentLines => TAG_CONFLICT_CURRENT,
                 ConflictSpanKind::IncomingLines => TAG_CONFLICT_INCOMING,
                 ConflictSpanKind::MarkerLine => TAG_CONFLICT_MARKER,
             };
-            for line in span.start_line..span.end_line {
-                if let Some(&(start_offset, end_offset)) = line_bounds.get(line) {
-                    Self::apply_tag_by_offset(buffer, tag_name, start_offset, end_offset);
-                }
-            }
+            Self::apply_tag_by_offset(buffer, tag_name, range.start_char, range.end_char);
         }
     }
 
@@ -3791,7 +2702,7 @@ impl PennaFrontendWindow {
             .is_some_and(|tag| tag == "editor")
     }
 
-    fn show_grid_view(&self) {
+    pub(crate) fn show_grid_view(&self) {
         let imp = self.imp();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = true;
@@ -3811,12 +2722,12 @@ impl PennaFrontendWindow {
         imp.main_page.set_margin_start(MAIN_PAGE_MARGIN_NORMAL);
         imp.main_page.set_margin_end(MAIN_PAGE_MARGIN_NORMAL);
         imp.back_to_grid_button.set_visible(false);
-        self.update_notes_search_reveal();
+        grid::update_notes_search_reveal(self);
 
         // Put focus on the selected row so arrow keys / Enter / Delete work
         // immediately, no matter how we got back to the grid (button, Escape,
         // or the NavigationView edge-swipe pop).
-        if let Some(button) = self.selected_note_button() {
+        if let Some(button) = grid::selected_note_button(self) {
             button.grab_focus();
         }
     }
@@ -3864,7 +2775,7 @@ impl PennaFrontendWindow {
         imp.main_page.set_margin_start(0);
         imp.main_page.set_margin_end(0);
         imp.back_to_grid_button.set_visible(true);
-        self.update_notes_search_reveal();
+        grid::update_notes_search_reveal(self);
         self.queue_follow_editor_cursor();
     }
 
@@ -3985,82 +2896,6 @@ mod sync_message_tests {
             sync_conflict_toast_message(3),
             "3 notes need conflict resolution"
         );
-    }
-}
-
-#[cfg(test)]
-mod entry_id_tests {
-    use super::*;
-
-    const ENTRY_ID_STEM_FORMAT: &str = "%Y%m%d%H%M";
-
-    fn format_id(timestamp: NaiveDateTime) -> String {
-        format!("{}.md", timestamp.format(ENTRY_ID_STEM_FORMAT))
-    }
-
-    #[test]
-    fn round_trip_parse_format_parse() {
-        for id in [
-            "202608241542.md",
-            "202402291230.md",
-            "202501010000.md",
-            "199912312359.md",
-        ] {
-            let first = PennaFrontendWindow::parse_entry_timestamp(id)
-                .unwrap_or_else(|| panic!("{id} should parse"));
-            let formatted = format_id(first.value);
-            assert_eq!(formatted, id, "formatting should reproduce the id");
-
-            let second = PennaFrontendWindow::parse_entry_timestamp(&formatted)
-                .unwrap_or_else(|| panic!("canonical {formatted} should re-parse"));
-            assert_eq!(second.value, first.value, "re-parsing should be lossless");
-        }
-    }
-
-    #[test]
-    fn round_trip_from_arbitrary_timestamp() {
-        let timestamp =
-            NaiveDateTime::parse_from_str("2017-05-03T07:09", "%Y-%m-%dT%H:%M").unwrap();
-        let id = format_id(timestamp);
-        assert_eq!(id, "201705030709.md");
-
-        let parsed = PennaFrontendWindow::parse_entry_timestamp(&id)
-            .unwrap_or_else(|| panic!("{id} should parse"));
-        assert_eq!(parsed.value, timestamp);
-        assert_eq!(format_id(parsed.value), id);
-    }
-
-    #[test]
-    fn rejects_wrong_length() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("20260824154.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026082415429.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp(".md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("").is_none());
-    }
-
-    #[test]
-    fn rejects_non_digits() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026O8241542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026082A1542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("abcdefabcdef.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026-82415-2.md").is_none());
-    }
-
-    #[test]
-    fn rejects_wrong_extension() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.txt").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.markdown").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.MD").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.md.md").is_none());
-    }
-
-    #[test]
-    fn rejects_invalid_calendar_values() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202602301542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202613011542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202601012542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202402290000.md").is_some());
     }
 }
 
