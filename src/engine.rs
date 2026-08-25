@@ -225,7 +225,7 @@ impl EngineMock {
             Err(_) => return Vec::new(),
         };
 
-        entries.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        entries.sort_by(|a, b| b.id.0.cmp(&a.id.0));
         entries
             .into_iter()
             .map(|entry| EntrySummary {
