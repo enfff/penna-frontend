@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+mod about;
 mod application;
 mod conflict;
 mod config;
@@ -27,6 +28,7 @@ mod format;
 mod gestures;
 mod grid;
 mod i18n;
+mod preferences;
 mod settings;
 mod sync;
 mod window;
