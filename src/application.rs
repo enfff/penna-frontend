@@ -126,7 +126,8 @@ mod imp {
 glib::wrapper! {
     pub struct PennaFrontendApplication(ObjectSubclass<imp::PennaFrontendApplication>)
         @extends gio::Application, gtk::Application, adw::Application,
-        @implements gio::ActionGroup, gio::ActionMap;
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget,
+                    gio::ActionGroup, gio::ActionMap;
 }
 
 impl PennaFrontendApplication {
@@ -551,11 +552,10 @@ impl PennaFrontendApplication {
         };
 
         let builder = gtk::Builder::from_resource("/com/github/pennafe/shortcuts-dialog.ui");
-        let Some(shortcuts) = builder.object::<gtk::ShortcutsWindow>("shortcuts_window") else {
+        let Some(shortcuts) = builder.object::<adw::ShortcutsDialog>("shortcuts_dialog") else {
             return;
         };
 
-        shortcuts.set_transient_for(Some(&window));
-        shortcuts.present();
+        shortcuts.present(Some(&window));
     }
 }
