@@ -35,8 +35,8 @@ pub fn no_note_selected() -> String {
     gettext("No note selected")
 }
 
-pub fn saved_via_entry_save_api() -> String {
-    gettext("Saved via entry_save API")
+pub fn saved() -> String {
+    gettext("Saved")
 }
 
 pub fn opened_todays_note() -> String {
@@ -105,6 +105,10 @@ pub fn choose_repository_folder() -> String {
     gettext("Choose repository folder")
 }
 
+pub fn unresolved_sync_conflict() -> String {
+    gettext("Unresolved sync conflict")
+}
+
 #[cfg(test)]
 mod i18n_surface_tests {
     use super::*;
@@ -132,7 +136,7 @@ mod i18n_surface_tests {
         );
         assert_eq!(no_entry_selected(), "No entry selected");
         assert_eq!(no_note_selected(), "No note selected");
-        assert_eq!(saved_via_entry_save_api(), "Saved via entry_save API");
+        assert_eq!(saved(), "Saved");
         assert_eq!(opened_todays_note(), "Opened today's note");
         assert_eq!(note_deleted(), "Note deleted");
         assert_eq!(undo_button_label(), "Undo");

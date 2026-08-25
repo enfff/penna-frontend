@@ -36,7 +36,10 @@ cargo_opt += [ '--target-dir', meson.project_build_root()  / 'src' ]
 # A cache seeded inside the project tree (via `cargo fetch` with the same
 # CARGO_HOME on the host) is visible to the sandbox build, so cargo reuses
 # the existing git checkout without cloning or needing credentials.
-cargo_env  = [ 'CARGO_HOME=' + meson.project_source_root() / '.cargo' ]
+cargo_env  = [ 'CARGO_HOME=' + meson.project_source_root() / '.cargo',
+             # Out-of-tree build dirs sit outside the repo, so
+             # rust-toolchain.toml is not seen; pin explicitly.
+             'RUSTUP_TOOLCHAIN=stable' ]
 
 if get_option('buildtype') == 'release'
   cargo_opt += [ '--release' ]

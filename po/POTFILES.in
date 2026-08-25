@@ -1,7 +1,7 @@
 # List of source files containing translatable strings.
 # Please keep this file sorted alphabetically.
-data/com.github.pennafe.desktop.in
-data/com.github.pennafe.metainfo.xml.in
-data/com.github.pennafe.gschema.xml
+data/io.github.enfff.Diary.desktop.in
+data/io.github.enfff.Diary.metainfo.xml.in
+data/io.github.enfff.Diary.gschema.xml
 src/window.ui
 src/i18n.rs

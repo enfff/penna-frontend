@@ -28,7 +28,7 @@ use std::rc::Rc;
 use crate::config::VERSION;
 use crate::PennaFrontendWindow;
 
-const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
+const SETTINGS_SCHEMA_ID: &str = "io.github.enfff.Diary";
 const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
@@ -545,14 +545,16 @@ impl PennaFrontendApplication {
     fn show_about(&self) {
         let window = self.active_window().unwrap();
         let about = adw::AboutDialog::builder()
-            .application_name("Penna-frontend")
-            .application_icon("com.github.pennafe")
-            .developer_name("Unknown")
+            .application_name("Diary")
+            .application_icon("io.github.enfff.Diary")
+            .developer_name("Francesco P. Carmone")
             .version(VERSION)
-            .developers(vec!["Unknown"])
+            .developers(vec!["Francesco P. Carmone"])
+            .website("https://github.com/enfff/penna-frontend")
+            .issue_url("https://github.com/enfff/penna-frontend/issues")
             // Translators: Replace "translator-credits" with your name/username, and optionally an email or URL.
             .translator_credits(gettext("translator-credits"))
-            .copyright("© 2026 Unknown")
+            .copyright("© 2026 Francesco P. Carmone")
             .build();
 
         about.present(Some(&window));

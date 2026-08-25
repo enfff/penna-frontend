@@ -1,11 +1,11 @@
-# Italian translation for penna-frontend.
-# Copyright (C) 2026 enfff
+# Italian translation for Diary (penna-frontend).
+# Copyright (C) 2026 Francesco P. Carmone
 msgid ""
 msgstr ""
-"Project-Id-Version: penna-frontend 0.1.2\n"
+"Project-Id-Version: penna-frontend 0.1.3\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: 2026-08-25 19:55+0200\n"
-"Last-Translator: enfff\n"
+"PO-Revision-Date: 2026-08-25 21:00+0200\n"
+"Last-Translator: Francesco P. Carmone\n"
 "Language-Team: Italian\n"
 "Language: it\n"
 "MIME-Version: 1.0\n"
@@ -13,81 +13,117 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: data/com.github.pennafe.desktop.in:2
-msgid "Penna-frontend"
-msgstr "Penna-frontend"
+#: data/io.github.enfff.Diary.desktop.in:2
+msgid "Diary"
+msgstr "Diario"
 
-#: data/com.github.pennafe.desktop.in:3
+#: data/io.github.enfff.Diary.desktop.in:3
 msgid "Journal"
 msgstr "Diario"
 
-#: data/com.github.pennafe.desktop.in:4
+#: data/io.github.enfff.Diary.desktop.in:4
 msgid "Keep a journal of your thoughts and memories"
-msgstr "Tieni un diario dei tuoi pensieri e ricordi"
+msgstr "Tieni un diario dei tuoi pensieri e dei tuoi ricordi"
 
-#: data/com.github.pennafe.desktop.in:10
-msgid "GTK;"
-msgstr "GTK;"
+#: data/io.github.enfff.Diary.desktop.in:10
+msgid "GTK;Diary;Journal;Notes;"
+msgstr "GTK;Diario;Note;"
 
-#: data/com.github.pennafe.metainfo.xml.in:8
-msgid "Keep the summary shorter, between 10 and 35 characters"
-msgstr "Mantieni il sommario più breve, tra 10 e 35 caratteri"
+#: data/io.github.enfff.Diary.metainfo.xml.in:8
+msgid "A calm place for daily notes"
+msgstr "Un luogo tranquillo per le note di ogni giorno"
 
-#: data/com.github.pennafe.metainfo.xml.in:10
-msgid "No description"
-msgstr "Nessuna descrizione"
+#: data/io.github.enfff.Diary.metainfo.xml.in:15
+msgid "Highlights:"
+msgstr "Punti salienti:"
 
-#: data/com.github.pennafe.metainfo.xml.in:14
-msgid "Developer name"
-msgstr "Sviluppatore"
+#: data/io.github.enfff.Diary.metainfo.xml.in:17
+msgid "Distraction-free editor with optional viewer mode"
+msgstr "Editor senza distrazioni con modalità lettura facoltativa"
 
-#: data/com.github.pennafe.metainfo.xml.in:52
-msgid "A caption"
-msgstr "Una didascalia"
+#: data/io.github.enfff.Diary.metainfo.xml.in:18
+msgid "One note per day, found fast in a searchable grid"
+msgstr "Una nota al giorno, ritrovata in un attimo in una griglia con ricerca"
 
-#: data/com.github.pennafe.gschema.xml:6
+#: data/io.github.enfff.Diary.metainfo.xml.in:19
+msgid "Markdown formatting with syntax highlighting"
+msgstr "Formattazione Markdown con evidenziazione della sintassi"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:20
+msgid "History and multi-machine sync through plain git"
+msgstr "Cronologia e sincronizzazione tra dispositivi tramite git"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:21
+msgid "Conflict-safe syncing with a guided resolver"
+msgstr "Sincronizzazione sicura dai conflitti con risolutore guidato"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:26
+msgid "Francesco P. Carmone"
+msgstr "Francesco P. Carmone"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:55
+msgid "This release focuses on navigation and reach:"
+msgstr "Questa versione si concentra su navigazione e accessibilità delle funzioni:"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:57
+msgid "Back-swipe to the notes grid also works over scrollable notes"
+msgstr "Lo swipe indietro alla griglia funziona anche con le note lunghe"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:59
+msgid "Initial translations: German, French, Italian"
+msgstr "Prime traduzioni: tedesco, francese, italiano"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:60
+msgid "GNOME 50 runtime; refreshed visuals and gesture handling"
+msgstr "Runtime GNOME 50; grafica e gesti rinnovati"
+
+#: data/io.github.enfff.Diary.gschema.xml:6
 msgid "Selected repository path"
 msgstr "Percorso del repository selezionato"
 
-#: data/com.github.pennafe.gschema.xml:7
+#: data/io.github.enfff.Diary.gschema.xml:7
 msgid "Journal repository path selected during setup."
 msgstr "Percorso del repository del diario scelto durante la configurazione."
 
-#: data/com.github.pennafe.gschema.xml:11
+#: data/io.github.enfff.Diary.gschema.xml:11
 msgid "Enable confetti mode"
 msgstr "Attiva la modalità coriandoli"
 
-#: data/com.github.pennafe.gschema.xml:12
+#: data/io.github.enfff.Diary.gschema.xml:12
 msgid "Mock preference used for prototype preferences window."
 msgstr "Preferenza fittizia per la finestra prototipo delle preferenze."
 
-#: data/com.github.pennafe.gschema.xml:16
+#: data/io.github.enfff.Diary.gschema.xml:16
 msgid "Open editor in viewer mode"
 msgstr "Apri l’editor in modalità lettura"
 
-#: data/com.github.pennafe.gschema.xml:17
+#: data/io.github.enfff.Diary.gschema.xml:17
 msgid "Whether notes should be shown read-only instead of editable."
 msgstr "Indica se le note vengono mostrate in sola lettura invece che modificabili."
 
-#: data/com.github.pennafe.gschema.xml:21
+#: data/io.github.enfff.Diary.gschema.xml:21
 msgid "Editor font preset"
 msgstr "Preimpostazione carattere dell’editor"
 
-#: data/com.github.pennafe.gschema.xml:22
+#: data/io.github.enfff.Diary.gschema.xml:22
 msgid "Editor font option: sans, serif, or custom."
 msgstr "Opzione carattere dell’editor: senza grazie, con grazie o personalizzato."
 
-#: data/com.github.pennafe.gschema.xml:26
+#: data/io.github.enfff.Diary.gschema.xml:26
 msgid "Custom editor font family"
 msgstr "Famiglia di caratteri personalizzata dell’editor"
 
-#: data/com.github.pennafe.gschema.xml:27
+#: data/io.github.enfff.Diary.gschema.xml:27
 msgid "Custom font family used when editor font preset is custom."
 msgstr "Famiglia di caratteri usata quando la preimpostazione dell’editor è «Personalizzato»."
 
-#: data/com.github.pennafe.gschema.xml:31
+#: data/io.github.enfff.Diary.gschema.xml:31
 msgid "Entry date/time display format"
 msgstr "Formato di visualizzazione data/ora della voce"
+
+#: src/window.ui:6
+msgid "Penna-frontend"
+msgstr "Penna-frontend"
 
 #: src/window.ui:29
 msgid "Sync now"
@@ -109,7 +145,7 @@ msgstr "Attiva la modalità lettura"
 msgid "Connect journal repository"
 msgstr "Connetti il repository del diario"
 
-#: src/window.ui:89
+#: src/window.ui:89 src/i18n.rs:105
 msgid "Choose repository folder"
 msgstr "Scegli la cartella del repository"
 
@@ -132,10 +168,6 @@ msgstr "Pronto"
 #: src/window.ui:157
 msgid "Search title and content"
 msgstr "Cerca nel titolo e nel contenuto"
-
-#: src/window.ui:171 src/i18n.rs:11
-msgid "Diary"
-msgstr "Diario"
 
 #: src/window.ui:192
 msgid "No notes yet"
@@ -202,8 +234,8 @@ msgid "No note selected"
 msgstr "Nessuna nota selezionata"
 
 #: src/i18n.rs:39
-msgid "Saved via entry_save API"
-msgstr "Salvato tramite l’API entry_save"
+msgid "Saved"
+msgstr "Salvato"
 
 #: src/i18n.rs:43
 msgid "Opened today's note"
@@ -260,3 +292,7 @@ msgstr "Modifiche in arrivo accettate"
 #: src/i18n.rs:101
 msgid "Change Repository"
 msgstr "Cambia repository"
+
+#: src/i18n.rs:109
+msgid "Unresolved sync conflict"
+msgstr "Conflitto di sincronizzazione irrisolto"

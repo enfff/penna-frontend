@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns="http://usefulinc.com/ns/doap#"
+         xmlns:foaf="http://xmlns.com/foaf/0.1/"
+         xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+
+  <Project rdf:about="https://github.com/enfff/penna-frontend">
+    <name>Diary</name>
+    <shortdesc xml:lang="en">A calm place for daily notes</shortdesc>
+    <description xml:lang="en">Diary is a local-first GNOME journaling app. Entries are plain Markdown files stored in a git repository you own, with history, multi-machine sync and a guided conflict resolver.</description>
+    <homepage rdf:resource="https://github.com/enfff/penna-frontend"/>
+    <bug-database rdf:resource="https://github.com/enfff/penna-frontend/issues"/>
+    <programming-language>Rust</programming-language>
+    <license rdf:resource="https://spdx.org/licenses/GPL-3.0-or-later.html"/>
+    <category rdf:resource="https://api.gnome.org/apps_for_gnome/categories/Utilities"/>
+    <maintainer>
+      <foaf:Person>
+        <foaf:name>Francesco P. Carmone</foaf:name>
+        <foaf:homepage rdf:resource="https://github.com/enfff"/>
+      </foaf:Person>
+    </maintainer>
+  </Project>
+
+</rdf:RDF>

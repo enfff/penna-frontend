@@ -1,4 +1,4 @@
-application_id = 'com.github.pennafe'
+application_id = 'io.github.enfff.Diary'
 
 scalable_dir = 'hicolor' / 'scalable' / 'apps'
 install_data(

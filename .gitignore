@@ -29,3 +29,9 @@ vendor/
 # Ralph loop artifacts
 .ralph-iter-*.log
 progress.txt
+# Autonomous loop tooling (kept out of the repository)
+ralph.sh
+PROMPT.md
+PLAN.md
+.ralph-iter-*.log
+progress.txt

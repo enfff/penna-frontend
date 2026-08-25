@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist gettext-domain="penna-frontend">
-	<schema id="com.github.pennafe" path="/com/github/pennafe/">
+	<schema id="io.github.enfff.Diary" path="/io/github/enfff/diary/">
 		<key name="repository-path" type="s">
 			<default>''</default>
 			<summary>Selected repository path</summary>

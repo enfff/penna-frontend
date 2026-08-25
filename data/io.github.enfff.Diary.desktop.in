@@ -1,12 +1,12 @@
 [Desktop Entry]
-Name=Penna-frontend
+Name=Diary
 GenericName=Journal
 Comment=Keep a journal of your thoughts and memories
 Exec=penna-frontend
-Icon=com.github.pennafe
+Icon=io.github.enfff.Diary
 Terminal=false
 Type=Application
 Categories=Utility;
-Keywords=GTK;
+Keywords=GTK;Diary;Journal;Notes;
 StartupNotify=true
 DBusActivatable=true

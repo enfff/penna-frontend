@@ -40,7 +40,7 @@ use crate::engine::{
     EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
 };
 
-const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
+const SETTINGS_SCHEMA_ID: &str = "io.github.enfff.Diary";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
 const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
@@ -72,11 +72,6 @@ const BACK_SWIPE_TOUCHPAD_DECIDE_PX: f64 = 10.0;
 // before the animation feels short.
 const BACK_SWIPE_TOUCHPAD_POP_PX: f64 = 40.0;
 
-fn swipe_trace(msg: &str) {
-    if std::env::var_os("PENNA_DEBUG_SWIPE").is_some() {
-        eprintln!("[swipe] {msg}");
-    }
-}
 const TAG_HEADING_1: &str = "md-heading-1";
 const TAG_HEADING_2: &str = "md-heading-2";
 const TAG_HEADING_3: &str = "md-heading-3";
@@ -946,7 +941,6 @@ impl PennaFrontendWindow {
                 move |gesture, start_x, _| {
                     let imp = window.imp();
                     let in_editor = *imp.in_editor_view.borrow();
-                    swipe_trace(&format!("begin start_x={start_x:.1} in_editor={in_editor}"));
                     if !in_editor || start_x > BACK_SWIPE_EDGE_ZONE_PX {
                         phase.set(Some(Phase::Ignored));
                         gesture.set_state(gtk::EventSequenceState::Denied);
@@ -961,7 +955,6 @@ impl PennaFrontendWindow {
             let phase = Rc::clone(&phase);
             gesture.connect_drag_update(move |gesture, dx, dy| {
                 let current = phase.get();
-                swipe_trace(&format!("update phase={current:?} dx={dx:.1} dy={dy:.1}"));
                 if current != Some(Phase::Deciding) {
                     return;
                 }
@@ -971,22 +964,12 @@ impl PennaFrontendWindow {
                     // all descendant gestures for this sequence.
                     phase.set(Some(Phase::Back));
                     gesture.set_state(gtk::EventSequenceState::Claimed);
-                    swipe_trace("update -> COMMIT (claimed)");
                 } else if dx.abs() >= BACK_SWIPE_DECIDE_PX || dy.abs() >= BACK_SWIPE_DECIDE_PX {
                     // Past the scroll threshold without a rightward commit:
                     // this is a scroll or other gesture, not a back-swipe.
                     phase.set(Some(Phase::Ignored));
                     gesture.set_state(gtk::EventSequenceState::Denied);
-                    swipe_trace("update -> DENY");
                 }
-            });
-        }
-
-        {
-            gesture.connect_sequence_state_changed(move |gesture, _, state| {
-                let seq = gesture.current_sequence();
-                let seq_state = gesture.sequence_state(seq.as_ref().unwrap());
-                swipe_trace(&format!("state_changed -> {state:?} (query={seq_state:?})"));
             });
         }
 
@@ -998,7 +981,6 @@ impl PennaFrontendWindow {
                 move |_, dx, _| {
                     let confirmed =
                         phase.get() == Some(Phase::Back) && dx >= BACK_SWIPE_MIN_DISTANCE_PX;
-                    swipe_trace(&format!("end dx={dx:.1} confirmed={confirmed}"));
                     phase.set(None);
                     if confirmed {
                         window.show_grid_view();
@@ -1053,7 +1035,6 @@ impl PennaFrontendWindow {
                             acc_dy: 0.0,
                         });
                     }
-                    swipe_trace(&format!("tp-begin in_editor={in_editor} armed={armed}"));
                 }
             ));
         }
@@ -1081,15 +1062,11 @@ impl PennaFrontendWindow {
                                 // tracker maps delta < 0 to back-navigation.
                                 if acc_dx < 0.0 && -acc_dx >= acc_dy.abs() {
                                     if -acc_dx >= BACK_SWIPE_TOUCHPAD_POP_PX {
-                                        swipe_trace("tp-commit -> POP");
                                         window.show_grid_view();
                                         stream.set(Stream::Done);
                                         return glib::Propagation::Stop;
                                     }
                                 } else {
-                                    swipe_trace(&format!(
-                                        "tp-abandon acc=({acc_dx:.1},{acc_dy:.1})"
-                                    ));
                                     stream.set(Stream::Idle);
                                     return glib::Propagation::Proceed;
                                 }
@@ -1105,7 +1082,6 @@ impl PennaFrontendWindow {
         {
             let stream = Rc::clone(&stream);
             gesture.connect_scroll_end(move |_| {
-                swipe_trace("tp-end");
                 stream.set(Stream::Idle);
             });
         }
@@ -1982,7 +1958,7 @@ impl PennaFrontendWindow {
             row_box.set_end_widget(Some(&tags_box));
             if conflicted_ids.iter().any(|id| id == &entry.entry_id) {
                 let conflict_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
-                conflict_icon.set_tooltip_text(Some("Unresolved sync conflict"));
+                conflict_icon.set_tooltip_text(Some(&i18n::unresolved_sync_conflict()));
                 conflict_icon.add_css_class("warning");
                 conflict_icon.set_margin_end(8);
                 row_box.set_center_widget(Some(&conflict_icon));
@@ -2348,7 +2324,7 @@ impl PennaFrontendWindow {
         match save_result {
             Ok(()) => {
                 self.set_entry_modified(false);
-                imp.sync_status_label.set_label(&i18n::saved_via_entry_save_api());
+                imp.sync_status_label.set_label(&i18n::saved());
                 self.refresh_notes_grid();
                 self.show_editor_view();
                 self.maybe_conclude_merge();
