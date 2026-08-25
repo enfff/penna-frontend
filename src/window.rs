@@ -1565,13 +1565,14 @@ impl PennaFrontendWindow {
                 .note-row:active {{\
                     background-color: alpha(currentColor, 0.12);\
                 }}\
-                .note-row.note-current {{\
+                flowbox.notes-grid > flowboxchild.note-current {{\
+                    border-radius: 10px;\
                     background-color: alpha(currentColor, 0.06);\
                 }}\
-                .note-row.note-current:hover {{\
-                    background-color: alpha(currentColor, 0.09);\
+                flowbox.notes-grid > flowboxchild.note-current:hover {{\
+                    background-color: alpha(currentColor, 0.10);\
                 }}\
-                .note-row.note-current:active {{\
+                flowbox.notes-grid > flowboxchild.note-current:active {{\
                     background-color: alpha(currentColor, 0.13);\
                 }}\
                 .note-row:focus, .note-row:focus-visible, .note-row:focus:focus-visible {{\
