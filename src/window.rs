@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::conflict::{
-    conflict_block_at_line, conflict_style_spans, unresolved_conflict_count, ConflictBlock,
+    conflict_block_at_line, conflict_style_char_ranges, unresolved_conflict_count, ConflictBlock,
     ConflictSide, ConflictSpanKind,
 };
 use crate::engine::{
@@ -3000,33 +3000,13 @@ impl PennaFrontendWindow {
     }
 
     fn apply_conflict_styling(buffer: &gtk::TextBuffer, text: &str) {
-        let spans = conflict_style_spans(text);
-        if spans.is_empty() {
-            return;
-        }
-
-        let mut line_bounds: Vec<(usize, usize)> = Vec::new();
-        let mut position = 0usize;
-        for line in text.split_inclusive('\n') {
-            let width = line.chars().count();
-            line_bounds.push((
-                position,
-                position + width - line.trim_end_matches('\n').chars().count(),
-            ));
-            position += width;
-        }
-
-        for span in spans {
-            let tag_name = match span.kind {
+        for range in conflict_style_char_ranges(text) {
+            let tag_name = match range.kind {
                 ConflictSpanKind::CurrentLines => TAG_CONFLICT_CURRENT,
                 ConflictSpanKind::IncomingLines => TAG_CONFLICT_INCOMING,
                 ConflictSpanKind::MarkerLine => TAG_CONFLICT_MARKER,
             };
-            for line in span.start_line..span.end_line {
-                if let Some(&(start_offset, end_offset)) = line_bounds.get(line) {
-                    Self::apply_tag_by_offset(buffer, tag_name, start_offset, end_offset);
-                }
-            }
+            Self::apply_tag_by_offset(buffer, tag_name, range.start_char, range.end_char);
         }
     }
 
