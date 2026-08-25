@@ -26,12 +26,10 @@ use chrono::Local;
 use std::rc::Rc;
 
 use crate::config::VERSION;
+use crate::editor;
 use crate::settings;
 use crate::PennaFrontendWindow;
 
-const EDITOR_FONT_SIZE_MIN_PT: f64 = 10.0;
-const EDITOR_FONT_SIZE_MAX_PT: f64 = 28.0;
-const EDITOR_FONT_SIZE_DEFAULT_PT: f64 = 14.0;
 const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 /// Renders a sample timestamp with the given strftime format for the live
@@ -322,12 +320,12 @@ impl PennaFrontendApplication {
 
         let initial_font_size = app_window
             .as_ref()
-            .map(|win| win.editor_font_size_pt() as f64)
-            .unwrap_or(EDITOR_FONT_SIZE_DEFAULT_PT);
+            .map(|win| editor::editor_font_size_pt(win) as f64)
+            .unwrap_or(editor::EDITOR_FONT_SIZE_DEFAULT_PT as f64);
 
         let font_size_row = adw::SpinRow::with_range(
-            EDITOR_FONT_SIZE_MIN_PT,
-            EDITOR_FONT_SIZE_MAX_PT,
+            editor::EDITOR_FONT_SIZE_MIN_PT as f64,
+            editor::EDITOR_FONT_SIZE_MAX_PT as f64,
             1.0,
         );
         font_size_row.set_title("Font size");
@@ -351,7 +349,7 @@ impl PennaFrontendApplication {
 
             if let Some(window) = app_for_sans.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                    window.refresh_editor_appearance();
+                    editor::apply_editor_css(&window);
                 }
             }
         });
@@ -366,7 +364,7 @@ impl PennaFrontendApplication {
 
             if let Some(window) = app_for_serif.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                    window.refresh_editor_appearance();
+                    editor::apply_editor_css(&window);
                 }
             }
         });
@@ -404,7 +402,7 @@ impl PennaFrontendApplication {
 
             if let Some(window) = app_for_custom_choice.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                    window.refresh_editor_appearance();
+                    editor::apply_editor_css(&window);
                 }
             }
         });
@@ -450,7 +448,7 @@ impl PennaFrontendApplication {
 
             if let Some(window) = app_for_custom.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                    window.refresh_editor_appearance();
+                    editor::apply_editor_css(&window);
                 }
             }
         });
@@ -461,7 +459,7 @@ impl PennaFrontendApplication {
 
             if let Some(window) = app_for_font_size.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                    window.set_editor_font_size_pt(size_pt);
+                    editor::set_editor_font_size_pt(&window, size_pt);
                 }
             }
         });

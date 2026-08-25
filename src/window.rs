@@ -35,6 +35,13 @@ use crate::conflict::{
     conflict_block_at_line, conflict_style_char_ranges, unresolved_conflict_count, ConflictBlock,
     ConflictSide, ConflictSpanKind,
 };
+use crate::editor;
+use crate::editor::{
+    TAG_BLOCKQUOTE, TAG_BOLD, TAG_CHECKED, TAG_CODE, TAG_CODE_BLOCK, TAG_CONFLICT_CURRENT,
+    TAG_CONFLICT_INCOMING, TAG_CONFLICT_MARKER, TAG_HEADING_1, TAG_HEADING_2, TAG_HEADING_3,
+    TAG_HEADING_4, TAG_ITALIC, TAG_LINK, TAG_LIST_ITEM, TAG_LIST_MARKER, TAG_RULE,
+    TAG_STRIKETHROUGH, TAG_SYNTAX,
+};
 use crate::engine::{
     EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
 };
@@ -46,28 +53,6 @@ use crate::sync;
 
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
-const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
-const EDITOR_FONT_SIZE_MIN_PT: i32 = 10;
-const EDITOR_FONT_SIZE_MAX_PT: i32 = 28;
-const TAG_HEADING_1: &str = "md-heading-1";
-const TAG_HEADING_2: &str = "md-heading-2";
-const TAG_HEADING_3: &str = "md-heading-3";
-const TAG_HEADING_4: &str = "md-heading-4";
-const TAG_BLOCKQUOTE: &str = "md-blockquote";
-const TAG_CODE: &str = "md-code";
-const TAG_CODE_BLOCK: &str = "md-code-block";
-const TAG_BOLD: &str = "md-bold";
-const TAG_ITALIC: &str = "md-italic";
-const TAG_STRIKETHROUGH: &str = "md-strikethrough";
-const TAG_SYNTAX: &str = "md-syntax";
-const TAG_LIST_MARKER: &str = "md-list-marker";
-const TAG_LIST_ITEM: &str = "md-list-item";
-const TAG_LINK: &str = "md-link";
-const TAG_CHECKED: &str = "md-checked";
-const TAG_RULE: &str = "md-rule";
-const TAG_CONFLICT_CURRENT: &str = "conflict-current";
-const TAG_CONFLICT_INCOMING: &str = "conflict-incoming";
-const TAG_CONFLICT_MARKER: &str = "conflict-marker";
 const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
 
@@ -188,7 +173,7 @@ mod imp {
                 grid_selected_entry_id: RefCell::default(),
                 header_visibility_locked: RefCell::default(),
                 editor_css_provider: RefCell::default(),
-                editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
+                editor_font_size_pt: RefCell::new(editor::EDITOR_FONT_SIZE_DEFAULT_PT),
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
@@ -240,10 +225,6 @@ impl PennaFrontendWindow {
             .build()
     }
 
-    pub fn refresh_editor_appearance(&self) {
-        self.apply_editor_css();
-    }
-
     pub fn refresh_entry_datetime_format(&self) {
         grid::refresh_notes_grid(self);
 
@@ -256,21 +237,6 @@ impl PennaFrontendWindow {
 
         let entry_id = self.imp().current_entry_id.borrow().clone();
         self.update_window_title(entry_id.as_deref());
-    }
-
-    pub fn editor_font_size_pt(&self) -> i32 {
-        *self.imp().editor_font_size_pt.borrow()
-    }
-
-    pub fn set_editor_font_size_pt(&self, size_pt: i32) {
-        let next_size = size_pt.clamp(EDITOR_FONT_SIZE_MIN_PT, EDITOR_FONT_SIZE_MAX_PT);
-
-        if next_size == *self.imp().editor_font_size_pt.borrow() {
-            return;
-        }
-
-        *self.imp().editor_font_size_pt.borrow_mut() = next_size;
-        self.apply_editor_css();
     }
 
     fn set_editor_only_actions_enabled(&self, enabled: bool) {
@@ -338,7 +304,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.adjust_editor_zoom(1);
+                editor::adjust_editor_zoom(&window, 1);
             }
         ));
         self.add_action(&zoom_in);
@@ -348,7 +314,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.adjust_editor_zoom(-1);
+                editor::adjust_editor_zoom(&window, -1);
             }
         ));
         self.add_action(&zoom_out);
@@ -358,7 +324,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.toggle_viewer_mode();
+                editor::toggle_viewer_mode(&window);
             }
         ));
         self.add_action(&toggle_viewer_mode);
@@ -556,8 +522,8 @@ impl PennaFrontendWindow {
     fn setup_callbacks(&self) {
         let imp = self.imp();
 
-        self.setup_editor_css();
-        self.setup_editor_tags();
+        editor::setup_editor_css(self);
+        editor::setup_editor_tags(self);
 
         imp.connect_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
@@ -588,7 +554,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
-                window.toggle_viewer_mode();
+                editor::toggle_viewer_mode(&window);
             }
         ));
 
@@ -738,9 +704,9 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Proceed;
                 }
                 if dy < 0.0 {
-                    window.adjust_editor_zoom(1);
+                    editor::adjust_editor_zoom(&window, 1);
                 } else if dy > 0.0 {
-                    window.adjust_editor_zoom(-1);
+                    editor::adjust_editor_zoom(&window, -1);
                 }
 
                 glib::Propagation::Stop
@@ -843,49 +809,9 @@ impl PennaFrontendWindow {
 
         gestures::install_editor_back_swipe(self);
         gestures::install_editor_back_swipe_touchpad(self);
-        self.load_editor_preferences();
+        editor::load_editor_preferences(self);
         self.show_grid_view();
         self.initialize_repository_state();
-    }
-
-
-    fn load_editor_preferences(&self) {
-        let viewer_mode = settings::get_bool(settings::SETTINGS_EDITOR_VIEWER_MODE_KEY);
-        *self.imp().editor_viewer_mode.borrow_mut() = viewer_mode;
-        self.apply_editor_mode();
-    }
-
-    fn toggle_viewer_mode(&self) {
-        let imp = self.imp();
-        let next = !*imp.editor_viewer_mode.borrow();
-        *imp.editor_viewer_mode.borrow_mut() = next;
-
-        let _ = settings::set_bool(settings::SETTINGS_EDITOR_VIEWER_MODE_KEY, next);
-
-        self.apply_editor_mode();
-    }
-
-    fn apply_editor_mode(&self) {
-        let imp = self.imp();
-        let viewer_mode = *imp.editor_viewer_mode.borrow();
-
-        imp.editor_view.set_editable(!viewer_mode);
-        imp.editor_view.set_cursor_visible(!viewer_mode);
-        imp.editor_view.set_can_focus(true);
-        imp.editor_view.set_can_target(!viewer_mode);
-        imp.editor_view
-            .set_cursor_from_name(if viewer_mode { Some("default") } else { None });
-        imp.viewer_mode_button.set_icon_name(if viewer_mode {
-            "view-conceal-symbolic"
-        } else {
-            "view-reveal-symbolic"
-        });
-        imp.viewer_mode_button
-            .set_tooltip_text(Some(if viewer_mode {
-                "Turn off viewer mode"
-            } else {
-                "Turn on viewer mode"
-            }));
     }
 
     fn wrap_selection(&self, prefix: &str, suffix: &str) {
@@ -1223,259 +1149,6 @@ impl PennaFrontendWindow {
         true
     }
 
-    fn setup_editor_css(&self) {
-        let provider = gtk::CssProvider::new();
-        *self.imp().editor_css_provider.borrow_mut() = Some(provider.clone());
-        self.apply_editor_css();
-
-        if let Some(display) = gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(
-                &display,
-                &provider,
-                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
-        }
-    }
-
-    fn apply_editor_css(&self) {
-        let imp = self.imp();
-        let font_size = *imp.editor_font_size_pt.borrow();
-        let font_preset = settings::get_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY);
-        let custom_font = settings::get_str(settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY);
-
-        let font_family_rule = match font_preset.as_str() {
-            "sans" => "font-family: \"Adwaita Sans\", Sans;".to_string(),
-            "serif" => "font-family: \"Free Serif\", Serif;".to_string(),
-            "custom" => {
-                let trimmed = custom_font.trim();
-                if trimmed.is_empty() {
-                    "font-family: \"Adwaita Sans\", Sans;".to_string()
-                } else {
-                    let escaped = trimmed.replace('"', "\\\"");
-                    format!("font-family: \"{escaped}\", Sans;")
-                }
-            }
-            _ => "font-family: \"Adwaita Sans\", Sans;".to_string(),
-        };
-
-        if let Some(provider) = imp.editor_css_provider.borrow().as_ref() {
-            provider.load_from_string(&format!(
-                ".immersive-editor, .immersive-editor text {{\
-                    background-color: transparent;\
-                    background-image: none;\
-                    {font_family_rule}\
-                    font-size: {font_size}pt;\
-                }}\
-                .immersive-editor {{\
-                    border-radius: 0;\
-                }}\
-                .note-row {{\
-                    padding: 4px 2px;\
-                    border-radius: 10px;\
-                }}\
-                /* Hover/press/selection shading is drawn entirely by the\
-                 * button as one layered rectangle; the surrounding\
-                 * flowboxchild would otherwise stack its own tint (see\
-                 * libadwaita _views.scss) and double up the highlight. */\
-                flowbox.notes-grid > flowboxchild:hover,\
-                flowbox.notes-grid > flowboxchild:active {{\
-                    background: none;\
-                }}\
-                .note-row:hover {{\
-                    background-color: alpha(currentColor, 0.07);\
-                }}\
-                .note-row:active {{\
-                    background-color: alpha(currentColor, 0.12);\
-                }}\
-                flowbox.notes-grid > flowboxchild.note-current {{\
-                    border-radius: 10px;\
-                    background-color: alpha(currentColor, 0.06);\
-                }}\
-                flowbox.notes-grid > flowboxchild.note-current:hover {{\
-                    background-color: alpha(currentColor, 0.10);\
-                }}\
-                flowbox.notes-grid > flowboxchild.note-current:active {{\
-                    background-color: alpha(currentColor, 0.13);\
-                }}\
-                .note-row:focus, .note-row:focus-visible, .note-row:focus:focus-visible {{\
-                    outline: none;\
-                }}\
-                flowbox.notes-grid > flowboxchild:focus, \
-                flowbox.notes-grid > flowboxchild:focus-visible, \
-                flowbox.notes-grid > flowboxchild:focus:focus-visible {{\
-                    outline: none;\
-                }}\
-                .note-tags {{\
-                    min-width: 0;\
-                }}\
-                .tag-chip {{\
-                    background-color: alpha(currentColor, 0.10);\
-                    border-radius: 999px;\
-                    padding: 4px 10px;\
-                }}\
-                .tag-chip label {{\
-                    font-size: 0.9em;\
-                }}"
-            ));
-        }
-    }
-
-    fn setup_editor_tags(&self) {
-        let buffer = self.imp().editor_view.buffer();
-        let table = buffer.tag_table();
-
-        let add_tag = |tag: &gtk::TextTag| {
-            if table
-                .lookup(tag.name().as_deref().unwrap_or_default())
-                .is_none()
-            {
-                table.add(tag);
-            }
-        };
-
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_1)
-                .weight(700)
-                .scale(1.8)
-                .line_height(1.8)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_2)
-                .weight(700)
-                .scale(1.5)
-                .line_height(1.6)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_3)
-                .weight(700)
-                .scale(1.25)
-                .line_height(1.4)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_HEADING_4)
-                .weight(700)
-                .scale(1.1)
-                .line_height(1.4)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_BLOCKQUOTE)
-                .style(pango::Style::Italic)
-                .left_margin(18)
-                .line_height(1.2)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CODE)
-                .family("monospace")
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CODE_BLOCK)
-                .family("monospace")
-                .left_margin(18)
-                .right_margin(18)
-                .line_height(1.2)
-                .build(),
-        );
-        add_tag(&gtk::TextTag::builder().name(TAG_BOLD).weight(700).build());
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_ITALIC)
-                .style(pango::Style::Italic)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_STRIKETHROUGH)
-                .strikethrough(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_SYNTAX)
-                .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
-                .scale(0.01)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_LIST_MARKER)
-                .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
-                .weight(500)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_LIST_ITEM)
-                .left_margin(18)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_LINK)
-                .underline(pango::Underline::Single)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CHECKED)
-                .strikethrough(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_RULE)
-                .scale(0.85)
-                .weight(700)
-                .justification(gtk::Justification::Center)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CONFLICT_CURRENT)
-                .background_rgba(&gdk::RGBA::new(0.30, 0.69, 0.31, 0.16))
-                .background_full_height(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CONFLICT_INCOMING)
-                .background_rgba(&gdk::RGBA::new(0.16, 0.50, 0.85, 0.16))
-                .background_full_height(true)
-                .build(),
-        );
-        add_tag(
-            &gtk::TextTag::builder()
-                .name(TAG_CONFLICT_MARKER)
-                .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
-                .style(pango::Style::Italic)
-                .build(),
-        );
-    }
-
-    fn adjust_editor_zoom(&self, delta: i32) {
-        let imp = self.imp();
-        let next_size = (*imp.editor_font_size_pt.borrow() + delta)
-            .clamp(EDITOR_FONT_SIZE_MIN_PT, EDITOR_FONT_SIZE_MAX_PT);
-
-        if next_size == *imp.editor_font_size_pt.borrow() {
-            return;
-        }
-
-        self.set_editor_font_size_pt(next_size);
-    }
-
     fn initialize_repository_state(&self) {
         let repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
 
@@ -1681,7 +1354,7 @@ impl PennaFrontendWindow {
         // Loading content fires the change handler above; the freshly loaded
         // note is by definition saved.
         self.set_entry_modified(false);
-        self.apply_editor_mode();
+        editor::apply_editor_mode(self);
         self.apply_markdown_styling();
         self.show_editor_view();
     }
@@ -1763,7 +1436,7 @@ impl PennaFrontendWindow {
         self.update_window_title(Some(&record.entry_id));
         imp.editor_view.buffer().set_text(&record.content);
         self.set_entry_modified(false);
-        self.apply_editor_mode();
+        editor::apply_editor_mode(self);
         self.apply_markdown_styling();
         self.show_editor_view();
         grid::refresh_notes_grid(self);

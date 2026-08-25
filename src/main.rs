@@ -21,6 +21,7 @@
 mod application;
 mod conflict;
 mod config;
+mod editor;
 mod engine;
 mod format;
 mod gestures;
