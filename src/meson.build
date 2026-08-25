@@ -62,3 +62,10 @@ cargo_build = custom_target(
     cargo_opt, '&&', 'cp', 'src' / rust_target / meson.project_name(), '@OUTPUT@',
   ]
 )
+
+cargo_test_bin = find_program('cargo', required: true)
+test('rust tests',
+     cargo_test_bin,
+     args: ['test'] + cargo_opt,
+     env: cargo_env,
+     timeout: 1800)
