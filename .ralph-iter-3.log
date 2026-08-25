@@ -1,0 +1,8 @@
+Context loaded. First `- [ ]` task is **T14: translatable desktop metadata**. Let me check the build setup and how the previous iteration refreshed po files.
+Build dir is configured with both `pot` and `update-po` targets. Now implementing T14: add translatable `GenericName` + `Comment` to the desktop file.
+POT regenerated cleanly. Now adding the two new msgids to each po file with translations, in template order (between `Penna-frontend` and `GTK;`).
+All 61 messages translated, no warnings. Now rebuild the merged desktop file and validate it:
+Merged file validates. Quick sanity check that translations actually merged into the desktop file:
+All locales merged. Running the gate command:
+Gate green. Marking T14 done and logging progress:
+**T14 complete.** Added translatable `GenericName=Journal` and `Comment=Keep a journal of your thoughts and memories` to `data/com.github.pennafe.desktop.in:3-4`, regenerated `po/penna-frontend.pot` via ninja, filled de/fr/it translations for both new msgids (61/61 each, `msgfmt --check` clean), and the merged desktop file passes `desktop-file-validate`. Gate command green; next iteration picks up T15.

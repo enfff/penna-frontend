@@ -13,7 +13,7 @@ only when the gate command passes for that task's work.
       `ninja -C <buildir> penna-frontend-pot`, refresh `po/de.po`, `po/fr.po`,
       `po/it.po` with correct plural entries (French/Italian use
       nplurals=2), and confirm `msgfmt --check` passes on all three.
-- [ ] T14: Translatable desktop metadata — `data/com.github.pennafe.desktop.in`
+- [x] T14: Translatable desktop metadata — `data/com.github.pennafe.desktop.in`
       currently exposes only the app name. Add translatable `Comment` and
       `GenericName` fields (journal-app wording, English source), regenerate
       the POT, and provide de/fr/it translations for every new msgid.

@@ -1,5 +1,7 @@
 [Desktop Entry]
 Name=Penna-frontend
+GenericName=Journal
+Comment=Keep a journal of your thoughts and memories
 Exec=penna-frontend
 Icon=com.github.pennafe
 Terminal=false

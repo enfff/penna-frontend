@@ -17,7 +17,15 @@ msgstr ""
 msgid "Penna-frontend"
 msgstr "Penna-frontend"
 
-#: data/com.github.pennafe.desktop.in:8
+#: data/com.github.pennafe.desktop.in:3
+msgid "Journal"
+msgstr "Diario"
+
+#: data/com.github.pennafe.desktop.in:4
+msgid "Keep a journal of your thoughts and memories"
+msgstr "Tieni un diario dei tuoi pensieri e ricordi"
+
+#: data/com.github.pennafe.desktop.in:10
 msgid "GTK;"
 msgstr "GTK;"
 

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 20:46+0200\n"
+"POT-Creation-Date: 2026-08-25 20:51+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -23,7 +23,15 @@ msgstr ""
 msgid "Penna-frontend"
 msgstr ""
 
-#: data/com.github.pennafe.desktop.in:8
+#: data/com.github.pennafe.desktop.in:3
+msgid "Journal"
+msgstr ""
+
+#: data/com.github.pennafe.desktop.in:4
+msgid "Keep a journal of your thoughts and memories"
+msgstr ""
+
+#: data/com.github.pennafe.desktop.in:10
 msgid "GTK;"
 msgstr ""
 
