@@ -31,7 +31,7 @@ msgstr "GTK;Diario;Note;"
 
 #: data/io.github.enfff.Diary.metainfo.xml.in:8
 msgid "A calm place for daily notes"
-msgstr "Un luogo tranquillo per le note di ogni giorno"
+msgstr "Un luogo tranquillo per le pagine di ogni giorno"
 
 #: data/io.github.enfff.Diary.metainfo.xml.in:15
 msgid "Highlights:"
@@ -171,15 +171,15 @@ msgstr "Cerca nel titolo e nel contenuto"
 
 #: src/window.ui:192
 msgid "No notes yet"
-msgstr "Ancora nessuna nota"
+msgstr "Ancora nessuna pagina"
 
 #: src/window.ui:200
 msgid "Create your first note to start your journal."
-msgstr "Crea la tua prima nota per iniziare il tuo diario."
+msgstr "Crea la tua prima pagina per iniziare il tuo diario."
 
 #: src/window.ui:214
 msgid "New Note"
-msgstr "Nuova nota"
+msgstr "Nuova pagina"
 
 #: src/window.ui:258
 msgid "Editor"
@@ -187,11 +187,11 @@ msgstr "Editor"
 
 #: src/window.ui:314
 msgid "_New Note"
-msgstr "_Nuova nota"
+msgstr "_Nuova pagina"
 
 #: src/window.ui:318
 msgid "_Delete Note"
-msgstr "_Elimina nota"
+msgstr "_Elimina pagina"
 
 #: src/window.ui:324
 msgid "_Preferences"
@@ -215,15 +215,15 @@ msgstr "Percorso del repository obbligatorio"
 
 #: src/i18n.rs:19
 msgid "Repository selected. Click Connect."
-msgstr "Repository selezionato. Fai clic su Connetti."
+msgstr "Repository selezionata. Fai clic su Connetti."
 
 #: src/i18n.rs:23
 msgid "Connect repository before saving"
-msgstr "Connetti il repository prima di salvare"
+msgstr "Connetti la repository prima di salvare"
 
 #: src/i18n.rs:27
 msgid "Connect repository before deleting"
-msgstr "Connetti il repository prima di eliminare"
+msgstr "Connetti la repository prima di eliminare"
 
 #: src/i18n.rs:31
 msgid "No entry selected"
@@ -239,11 +239,11 @@ msgstr "Salvato"
 
 #: src/i18n.rs:43
 msgid "Opened today's note"
-msgstr "Nota di oggi aperta"
+msgstr "Aperta voce di oggi"
 
 #: src/i18n.rs:47
 msgid "Note deleted"
-msgstr "Nota eliminata"
+msgstr "Pagina eliminata"
 
 #: src/i18n.rs:51
 msgid "Undo"
@@ -251,7 +251,7 @@ msgstr "Annulla"
 
 #: src/i18n.rs:55
 msgid "Note restored"
-msgstr "Nota ripristinata"
+msgstr "Pagina ripristinata"
 
 #: src/i18n.rs:59
 msgid "All conflicts resolved — sync complete"
@@ -270,8 +270,8 @@ msgstr[1] "{} conflitti irrisolti"
 #: src/i18n.rs:77
 msgid "{} note needs conflict resolution"
 msgid_plural "{} notes need conflict resolution"
-msgstr[0] "{} nota richiede una risoluzione dei conflitti"
-msgstr[1] "{} note richiedono una risoluzione dei conflitti"
+msgstr[0] "{} pagina richiede una risoluzione dei conflitti"
+msgstr[1] "{} pagina richiedono una risoluzione dei conflitti"
 
 #: src/i18n.rs:85
 msgid "Accept Current"
