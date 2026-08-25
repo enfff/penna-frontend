@@ -2,3 +2,12 @@ Task T18: move gesture installers into `src/gestures.rs`. Let me find them.
 Imp fields are already `pub`. Let me check the remaining pieces I need: the imp struct fields around lines 110-170, and `show_grid_view` at 3686.
 Meson delegates to cargo, so new files need no registration. Creating `src/gestures.rs` with the two installers, their constants, and the sole-caller helper `editor_content_scrollable`:
 Now the window.rs edits:
+The second edit kept `editor_content_scrollable` in window.rs by accident — it should move entirely (its only caller is now in gestures.rs). Removing it:
+Now compile, then run the gate:
+Gate green. Marking T18 done and logging progress:
+**T18 done.**
+
+- Moved `install_editor_back_swipe` + `install_editor_back_swipe_touchpad`, all 6 `BACK_SWIPE_*` constants (comments preserved), and `editor_content_scrollable` (sole caller was the touchpad installer) into new `src/gestures.rs` — public fns taking `&PennaFrontendWindow`.
+- window.rs: call sites now `gestures::install_editor_back_swipe(self)`; `show_grid_view` widened to `pub(crate)`; unused `Cell` import dropped. No behavior/strings/.ui changes.
+- Line counts: gestures.rs 0→225, window.rs 3930→3721.
+- Gate: clippy `-D warnings` clean, 82 tests pass. PLAN.md updated, progress.txt appended.

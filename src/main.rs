@@ -23,6 +23,7 @@ mod conflict;
 mod config;
 mod engine;
 mod format;
+mod gestures;
 mod i18n;
 mod settings;
 mod window;
