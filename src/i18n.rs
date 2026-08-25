@@ -99,6 +99,22 @@ pub fn change_repository() -> String {
     gettext("Change Repository")
 }
 
+pub fn repository_group_title() -> String {
+    gettext("Repository")
+}
+
+pub fn change_action_label() -> String {
+    gettext("Change…")
+}
+
+pub fn open_in_files() -> String {
+    gettext("Open in Files")
+}
+
+pub fn no_repository_connected() -> String {
+    gettext("No repository connected yet")
+}
+
 pub fn choose_repository_folder() -> String {
     gettext("Choose repository folder")
 }

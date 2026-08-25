@@ -183,17 +183,6 @@ impl PennaFrontendApplication {
 
         group.add(&mock_row);
 
-        // Repository switch lives here now; it left the main menu.
-        let repo_row = adw::ActionRow::builder()
-            .title(crate::i18n::change_repository())
-            .activatable(true)
-            .build();
-        if let Some(app_window) = app_window.clone() {
-            repo_row.connect_activated(move |_| {
-                app_window.pick_repository_and_connect();
-            });
-        }
-        group.add(&repo_row);
 
         let font_group = adw::PreferencesGroup::builder()
             .title("Editor")
@@ -522,6 +511,54 @@ impl PennaFrontendApplication {
 
         group.add(&entry_format_row);
 
+        let repository_group = adw::PreferencesGroup::builder()
+            .title(crate::i18n::repository_group_title())
+            .build();
+
+        let current_repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
+
+        let change_row = adw::ActionRow::builder()
+            .title(crate::i18n::change_repository())
+            .subtitle(&current_repo_path)
+            .build();
+        if !current_repo_path.is_empty() {
+            change_row.set_subtitle(&current_repo_path);
+        } else {
+            change_row.set_subtitle(crate::i18n::no_repository_connected().as_str());
+        }
+        let change_button = gtk::Button::builder()
+            .label(crate::i18n::change_action_label())
+            .valign(gtk::Align::Center)
+            .css_classes(vec!["flat".to_string()])
+            .build();
+        if let Some(app_window) = app_window.clone() {
+            change_button.connect_clicked(move |_| {
+                app_window.pick_repository_and_connect();
+            });
+        }
+        change_row.add_suffix(&change_button);
+        repository_group.add(&change_row);
+
+        let open_row = adw::ActionRow::builder()
+            .title(crate::i18n::open_in_files())
+            .activatable(true)
+            .sensitive(!current_repo_path.is_empty())
+            .build();
+        if let Some(app_window) = app_window.clone() {
+            let captured_path = current_repo_path.clone();
+            open_row.connect_activated(move |_| {
+                let file = gio::File::for_path(&captured_path);
+                let launcher = gtk::FileLauncher::new(Some(&file));
+                launcher.open_containing_folder(
+                    Some(&app_window),
+                    None::<&gio::Cancellable>,
+                    |_| {},
+                );
+            });
+        }
+        repository_group.add(&open_row);
+
+        page.add(&repository_group);
         page.add(&group);
         page.add(&font_group);
         page.add(&font_size_group);

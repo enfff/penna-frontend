@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend 0.1.3\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: 2026-08-25 23:40+0200\n"
+"PO-Revision-Date: 2026-08-26 00:10+0200\n"
 "Last-Translator: Francesco P. Carmone\n"
 "Language-Team: Italian\n"
 "Language: it\n"
@@ -278,9 +278,25 @@ msgid "Change Repository"
 msgstr "Cambia repository"
 
 #: src/i18n.rs:103
+msgid "Repository"
+msgstr "Repository"
+
+#: src/i18n.rs:107
+msgid "Change…"
+msgstr "Modifica…"
+
+#: src/i18n.rs:111
+msgid "Open in Files"
+msgstr "Apri in File"
+
+#: src/i18n.rs:115
+msgid "No repository connected yet"
+msgstr "Nessun repository connesso"
+
+#: src/i18n.rs:119
 msgid "Choose repository folder"
 msgstr "Scegli la cartella del repository"
 
-#: src/i18n.rs:107
+#: src/i18n.rs:123
 msgid "Unresolved sync conflict"
 msgstr "Conflitto di sincronizzazione irrisolto"
