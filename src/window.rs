@@ -41,6 +41,7 @@ use crate::engine::{
 use crate::format;
 use crate::gestures;
 use crate::settings;
+use crate::sync;
 
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
@@ -1495,10 +1496,7 @@ impl PennaFrontendWindow {
             return;
         }
 
-        let connect_result = {
-            let mut engine = imp.engine.lock().unwrap();
-            engine.connect_journal(&repo_path)
-        };
+        let connect_result = sync::connect_journal(self, &repo_path);
 
         match connect_result {
             Ok(result) => {
@@ -1546,10 +1544,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let outcome = {
-            let engine = imp.engine.lock().unwrap();
-            engine.sync_journal(handle)
-        };
+        let outcome = sync::sync_journal(self, handle);
 
         match outcome {
             Ok(outcome) => self.handle_sync_outcome(&outcome),
@@ -1587,18 +1582,14 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let merge_pending = imp
-            .engine
-            .lock()
-            .unwrap()
-            .journal_status(handle)
-            .is_some_and(|status| status.merge_in_progress);
+        let merge_pending =
+            sync::journal_status(self, handle).is_some_and(|status| status.merge_in_progress);
 
         if !merge_pending {
             return;
         }
 
-        let outcome = imp.engine.lock().unwrap().sync_journal(handle);
+        let outcome = sync::sync_journal(self, handle);
         match outcome {
             Ok(outcome) if outcome.conflicted_entry_ids.is_empty() => {
                 self.handle_sync_outcome(&outcome);
@@ -1625,28 +1616,18 @@ impl PennaFrontendWindow {
             imp.notes_flowbox.remove(&child);
         }
 
-        let entries = {
-            let engine = imp.engine.lock().unwrap();
-            engine.list_entries(handle)
-        };
+        let entries = sync::list_entries(self, handle);
 
         // Notes still conflicted mid-merge get a warning badge so unresolved
         // sync state is visible without opening each note.
-        let conflicted_ids = {
-            let engine = imp.engine.lock().unwrap();
-            engine.conflicted_entry_ids(handle)
-        };
+        let conflicted_ids = sync::conflicted_entry_ids(self, handle);
 
         let mut first_visible_button: Option<gtk::Button> = None;
 
         for entry in &entries {
-            let content = {
-                let engine = imp.engine.lock().unwrap();
-                engine
-                    .get_entry(handle, &entry.entry_id)
-                    .map(|item| item.content)
-                    .unwrap_or_default()
-            };
+            let content = sync::get_entry(self, handle, &entry.entry_id)
+                .map(|item| item.content)
+                .unwrap_or_default();
 
             if !Self::entry_matches_query(&entry.entry_id, &content, &entry.tags, &query) {
                 continue;
@@ -1751,7 +1732,7 @@ impl PennaFrontendWindow {
             }
         }
 
-        if let Some(status) = imp.engine.lock().unwrap().journal_status(handle) {
+        if let Some(status) = sync::journal_status(self, handle) {
             let mut details = format!(
                 "Branch: {} | head: {} | dirty: {} | entries: {}",
                 status.branch, status.head_commit, status.dirty, status.entry_count
@@ -2008,12 +1989,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let content = {
-            let engine = imp.engine.lock().unwrap();
-            engine.get_entry(handle, entry_id)
-        };
-
-        let Some(entry) = content else {
+        let Some(entry) = sync::get_entry(self, handle, entry_id) else {
             return;
         };
 
@@ -2059,10 +2035,7 @@ impl PennaFrontendWindow {
 
         let tags = imp.current_entry_tags.borrow().clone();
 
-        let save_result = {
-            let mut engine = imp.engine.lock().unwrap();
-            engine.entry_save(handle, &entry_id, &content, &tags)
-        };
+        let save_result = sync::entry_save(self, handle, &entry_id, &content, &tags);
 
         match save_result {
             Ok(()) => {
@@ -2087,10 +2060,7 @@ impl PennaFrontendWindow {
         // One note per day: if today already has an entry, redirect to it
         // instead of creating a duplicate.
         let today = chrono::Local::now().format("%Y%m%d").to_string();
-        let existing = {
-            let engine = imp.engine.lock().unwrap();
-            Self::entry_id_for_day(&engine.list_entries(handle), &today)
-        };
+        let existing = Self::entry_id_for_day(&sync::list_entries(self, handle), &today);
 
         if let Some(existing) = existing {
             let toast = adw::Toast::new(&i18n::opened_todays_note());
@@ -2099,14 +2069,11 @@ impl PennaFrontendWindow {
             return;
         }
 
-        let record = {
-            let mut engine = imp.engine.lock().unwrap();
-            match engine.create_entry_new(handle) {
-                Ok(record) => record,
-                Err(err) => {
-                    imp.sync_status_label.set_label(&err);
-                    return;
-                }
+        let record = match sync::create_entry_new(self, handle) {
+            Ok(record) => record,
+            Err(err) => {
+                imp.sync_status_label.set_label(&err);
+                return;
             }
         };
 
@@ -2141,14 +2108,11 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let snapshot = {
-            let mut engine = imp.engine.lock().unwrap();
-            match engine.delete_entry_with_snapshot(handle, &entry_id) {
-                Ok(snapshot) => snapshot,
-                Err(err) => {
-                    imp.sync_status_label.set_label(&err);
-                    return;
-                }
+        let snapshot = match sync::delete_entry_with_snapshot(self, handle, &entry_id) {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                imp.sync_status_label.set_label(&err);
+                return;
             }
         };
 
@@ -2194,10 +2158,7 @@ impl PennaFrontendWindow {
                     return;
                 };
 
-                let result = {
-                    let mut engine = window_imp.engine.lock().unwrap();
-                    engine.restore_entry(handle, &snapshot)
-                };
+                let result = sync::restore_entry(&window, handle, &snapshot);
 
                 match result {
                     Ok(record) => {
@@ -2249,10 +2210,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let initial_fingerprint = {
-            let engine = imp.engine.lock().unwrap();
-            engine.entries_fingerprint(handle).ok()
-        };
+        let initial_fingerprint = sync::entries_fingerprint(self, handle).ok();
         *imp.last_entries_fingerprint.borrow_mut() = initial_fingerprint;
 
         self.start_entries_monitor();
@@ -2265,10 +2223,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let watch_path = {
-            let engine = imp.engine.lock().unwrap();
-            engine.entries_directory(handle)
-        };
+        let watch_path = sync::entries_directory(self, handle);
 
         let Some(watch_path) = watch_path else {
             return;
@@ -2354,10 +2309,7 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let fingerprint = {
-            let engine = imp.engine.lock().unwrap();
-            engine.entries_fingerprint(handle)
-        };
+        let fingerprint = sync::entries_fingerprint(self, handle);
 
         match fingerprint {
             Ok(current) => {
@@ -2379,19 +2331,13 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let reload_result = {
-            let mut engine = imp.engine.lock().unwrap();
-            engine.reload_entries(handle)
-        };
+        let reload_result = sync::reload_entries(self, handle);
 
         match reload_result {
             Ok(count) => {
                 self.refresh_notes_grid();
 
-                let new_fingerprint = {
-                    let engine = imp.engine.lock().unwrap();
-                    engine.entries_fingerprint(handle).ok()
-                };
+                let new_fingerprint = sync::entries_fingerprint(self, handle).ok();
                 *imp.last_entries_fingerprint.borrow_mut() = new_fingerprint;
 
                 imp.sync_status_label
@@ -2558,10 +2504,7 @@ impl PennaFrontendWindow {
         pages.add_named(&empty_page, Some("empty"));
         content.append(&pages);
 
-        let available_tags = Rc::new(RefCell::new({
-            let engine = imp.engine.lock().unwrap();
-            engine.list_tags(handle)
-        }));
+        let available_tags = Rc::new(RefCell::new(sync::list_tags(self, handle)));
         let current_tags = Rc::new(RefCell::new(imp.current_entry_tags.borrow().clone()));
         type RenderRowsHandle = Rc<RefCell<Option<Rc<dyn Fn()>>>>;
         let render_rows_handle: RenderRowsHandle = Rc::new(RefCell::new(None));
@@ -2595,13 +2538,10 @@ impl PennaFrontendWindow {
                 #[strong]
                 entry_id,
                 move |tag: &str, attach: bool| {
-                    let result = {
-                        let mut engine = window.imp().engine.lock().unwrap();
-                        if attach {
-                            engine.add_tag(handle, &entry_id, tag)
-                        } else {
-                            engine.remove_tag(handle, &entry_id, tag)
-                        }
+                    let result = if attach {
+                        sync::add_tag(&window, handle, &entry_id, tag)
+                    } else {
+                        sync::remove_tag(&window, handle, &entry_id, tag)
                     };
 
                     if let Ok(tags) = result {
@@ -2648,10 +2588,7 @@ impl PennaFrontendWindow {
                         return;
                     }
 
-                    let result = {
-                        let mut engine = window.imp().engine.lock().unwrap();
-                        engine.add_tag(handle, &entry_id, &tag)
-                    };
+                    let result = sync::add_tag(&window, handle, &entry_id, &tag);
 
                     if let Ok(tags) = result {
                         if !available_tags

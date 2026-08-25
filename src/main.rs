@@ -26,6 +26,7 @@ mod format;
 mod gestures;
 mod i18n;
 mod settings;
+mod sync;
 mod window;
 
 use self::application::PennaFrontendApplication;
