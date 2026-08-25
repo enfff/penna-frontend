@@ -1549,12 +1549,30 @@ impl PennaFrontendWindow {
                 }}\
                 .note-row {{\
                     padding: 4px 2px;\
+                    border-radius: 10px;\
                 }}\
-                /* Hover/press feedback comes from the surrounding\
-                 * flowboxchild (see libadwaita _views.scss); without this\
-                 * the flat button paints a second tint inside it. */\
-                .note-row:hover, .note-row:active {{\
+                /* Hover/press/selection shading is drawn entirely by the\
+                 * button as one layered rectangle; the surrounding\
+                 * flowboxchild would otherwise stack its own tint (see\
+                 * libadwaita _views.scss) and double up the highlight. */\
+                flowbox.notes-grid > flowboxchild:hover,\
+                flowbox.notes-grid > flowboxchild:active {{\
                     background: none;\
+                }}\
+                .note-row:hover {{\
+                    background-color: alpha(currentColor, 0.07);\
+                }}\
+                .note-row:active {{\
+                    background-color: alpha(currentColor, 0.12);\
+                }}\
+                .note-row.note-current {{\
+                    background-color: alpha(currentColor, 0.06);\
+                }}\
+                .note-row.note-current:hover {{\
+                    background-color: alpha(currentColor, 0.09);\
+                }}\
+                .note-row.note-current:active {{\
+                    background-color: alpha(currentColor, 0.13);\
                 }}\
                 .note-row:focus, .note-row:focus-visible, .note-row:focus:focus-visible {{\
                     outline: none;\
@@ -1563,10 +1581,6 @@ impl PennaFrontendWindow {
                 flowbox.notes-grid > flowboxchild:focus-visible, \
                 flowbox.notes-grid > flowboxchild:focus:focus-visible {{\
                     outline: none;\
-                }}\
-                .note-row.note-current {{\
-                    border-radius: 10px;\
-                    background-color: alpha(currentColor, 0.06);\
                 }}\
                 .note-tags {{\
                     min-width: 0;\
@@ -2079,10 +2093,18 @@ impl PennaFrontendWindow {
         let selected = self.imp().grid_selected_entry_id.borrow().clone();
         for button in self.note_buttons() {
             let is_selected = selected.as_deref() == Some(button.widget_name().as_str());
-            if is_selected {
-                button.add_css_class("note-current");
-            } else {
-                button.remove_css_class("note-current");
+            // Paint the selection on the flowboxchild wrapper, not the
+            // button: libadwaita draws hover/active feedback on that same
+            // wrapper, so keeping one painted layer avoids stacked tints.
+            if let Some(wrapper) = button
+                .parent()
+                .and_then(|widget| widget.downcast::<gtk::FlowBoxChild>().ok())
+            {
+                if is_selected {
+                    wrapper.add_css_class("note-current");
+                } else {
+                    wrapper.remove_css_class("note-current");
+                }
             }
         }
     }
