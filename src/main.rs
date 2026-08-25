@@ -22,6 +22,7 @@ mod application;
 mod conflict;
 mod config;
 mod engine;
+mod i18n;
 mod window;
 
 use self::application::PennaFrontendApplication;
@@ -34,6 +35,7 @@ use gtk::prelude::*;
 
 fn main() -> glib::ExitCode {
     // Set up gettext translations
+    gettextrs::setlocale(gettextrs::LocaleCategory::LcAll, "");
     bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR).expect("Unable to bind the text domain");
     bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8")
         .expect("Unable to set the text domain encoding");

@@ -4,3 +4,4 @@ data/com.github.pennafe.desktop.in
 data/com.github.pennafe.metainfo.xml.in
 data/com.github.pennafe.gschema.xml
 src/window.ui
+src/i18n.rs

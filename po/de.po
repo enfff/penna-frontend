@@ -1,0 +1,254 @@
+# German translation for penna-frontend.
+# Copyright (C) 2026 enfff
+msgid ""
+msgstr ""
+"Project-Id-Version: penna-frontend 0.1.2\n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: 2026-08-25 19:00+0200\n"
+"Last-Translator: enfff\n"
+"Language-Team: German\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: data/com.github.pennafe.desktop.in:2
+msgid "Penna-frontend"
+msgstr "Penna-frontend"
+
+#: data/com.github.pennafe.desktop.in:8
+msgid "GTK;"
+msgstr "GTK;"
+
+#: data/com.github.pennafe.metainfo.xml.in:8
+msgid "Keep the summary shorter, between 10 and 35 characters"
+msgstr "Halte die Zusammenfassung kürzer, zwischen 10 und 35 Zeichen"
+
+#: data/com.github.pennafe.metainfo.xml.in:10
+msgid "No description"
+msgstr "Keine Beschreibung"
+
+#: data/com.github.pennafe.metainfo.xml.in:14
+msgid "Developer name"
+msgstr "Entwicklername"
+
+#: data/com.github.pennafe.metainfo.xml.in:52
+msgid "A caption"
+msgstr "Eine Bildunterschrift"
+
+#: data/com.github.pennafe.gschema.xml:6
+msgid "Selected repository path"
+msgstr "Ausgewählter Repository-Pfad"
+
+#: data/com.github.pennafe.gschema.xml:7
+msgid "Journal repository path selected during setup."
+msgstr "Während der Einrichtung gewählter Journal-Repository-Pfad."
+
+#: data/com.github.pennafe.gschema.xml:11
+msgid "Enable confetti mode"
+msgstr "Konfetti-Modus aktivieren"
+
+#: data/com.github.pennafe.gschema.xml:12
+msgid "Mock preference used for prototype preferences window."
+msgstr "Test-Einstellung für das Prototyp-Einstellungsfenster."
+
+#: data/com.github.pennafe.gschema.xml:16
+msgid "Open editor in viewer mode"
+msgstr "Editor im Ansichtsmodus öffnen"
+
+#: data/com.github.pennafe.gschema.xml:17
+msgid "Whether notes should be shown read-only instead of editable."
+msgstr "Legt fest, ob Notizen schreibgeschützt statt bearbeitbar angezeigt werden."
+
+#: data/com.github.pennafe.gschema.xml:21
+msgid "Editor font preset"
+msgstr "Editor-Schriftvoreinstellung"
+
+#: data/com.github.pennafe.gschema.xml:22
+msgid "Editor font option: sans, serif, or custom."
+msgstr "Editor-Schriftoption: serifenlos, mit Serifen oder benutzerdefiniert."
+
+#: data/com.github.pennafe.gschema.xml:26
+msgid "Custom editor font family"
+msgstr "Eigene Editor-Schriftfamilie"
+
+#: data/com.github.pennafe.gschema.xml:27
+msgid "Custom font family used when editor font preset is custom."
+msgstr "Eigene Schriftfamilie, wenn als Editor-Voreinstellung „Benutzerdefiniert“ gewählt ist."
+
+#: data/com.github.pennafe.gschema.xml:31
+msgid "Entry date/time display format"
+msgstr "Anzeigeformat für Datum/Uhrzeit des Eintrags"
+
+#: src/window.ui:30
+msgid "Back to notes grid"
+msgstr "Zurück zur Notizenübersicht"
+
+#: src/window.ui:36
+msgid "Turn on viewer mode"
+msgstr "Ansichtsmodus einschalten"
+
+#: src/window.ui:43
+msgid "Main Menu"
+msgstr "Hauptmenü"
+
+#: src/window.ui:68
+msgid "Connect journal repository"
+msgstr "Journal-Repository verbinden"
+
+#: src/window.ui:82
+msgid "Choose repository folder"
+msgstr "Repository-Ordner auswählen"
+
+#: src/window.ui:90
+msgid "Choose Folder"
+msgstr "Ordner wählen"
+
+#: src/window.ui:99
+msgid "Connect"
+msgstr "Verbinden"
+
+#: src/window.ui:111
+msgid "Select your journal repository to continue."
+msgstr "Wähle dein Journal-Repository, um fortzufahren."
+
+#: src/window.ui:133
+msgid "Ready"
+msgstr "Bereit"
+
+#: src/window.ui:150
+msgid "Search title and content"
+msgstr "Titel und Inhalt durchsuchen"
+
+#: src/window.ui:164 src/i18n.rs:11
+msgid "Diary"
+msgstr "Tagebuch"
+
+#: src/window.ui:185
+msgid "No notes yet"
+msgstr "Noch keine Notizen"
+
+#: src/window.ui:193
+msgid "Create your first note to start your journal."
+msgstr "Erstelle deine erste Notiz, um dein Journal zu starten."
+
+#: src/window.ui:207
+msgid "New Note"
+msgstr "Neue Notiz"
+
+#: src/window.ui:251
+msgid "Editor"
+msgstr "Editor"
+
+#: src/window.ui:307
+msgid "_New Note"
+msgstr "_Neue Notiz"
+
+#: src/window.ui:311
+msgid "_Delete Note"
+msgstr "Notiz _löschen"
+
+#: src/window.ui:317
+msgid "_Sync Now"
+msgstr "Jetzt _synchronisieren"
+
+#: src/window.ui:323
+msgid "_Preferences"
+msgstr "_Einstellungen"
+
+#: src/window.ui:327
+msgid "_Keyboard Shortcuts"
+msgstr "_Tastenkombinationen"
+
+#: src/window.ui:331
+msgid "_Change Repository"
+msgstr "Repository _wechseln"
+
+#: src/window.ui:335
+msgid "_About Penna-frontend"
+msgstr "_Über Penna-frontend"
+
+#: src/window.ui:339
+msgid "_Quit"
+msgstr "_Beenden"
+
+#: src/i18n.rs:15
+msgid "Repository path required"
+msgstr "Repository-Pfad erforderlich"
+
+#: src/i18n.rs:19
+msgid "Repository selected. Click Connect."
+msgstr "Repository ausgewählt. Klicke auf Verbinden."
+
+#: src/i18n.rs:23
+msgid "Connect repository before saving"
+msgstr "Vor dem Speichern Repository verbinden"
+
+#: src/i18n.rs:27
+msgid "Connect repository before deleting"
+msgstr "Vor dem Löschen Repository verbinden"
+
+#: src/i18n.rs:31
+msgid "No entry selected"
+msgstr "Kein Eintrag ausgewählt"
+
+#: src/i18n.rs:35
+msgid "No note selected"
+msgstr "Keine Notiz ausgewählt"
+
+#: src/i18n.rs:39
+msgid "Saved via entry_save API"
+msgstr "Über die entry_save-API gespeichert"
+
+#: src/i18n.rs:43
+msgid "Opened today's note"
+msgstr "Heutige Notiz geöffnet"
+
+#: src/i18n.rs:47
+msgid "Note deleted"
+msgstr "Notiz gelöscht"
+
+#: src/i18n.rs:51
+msgid "Undo"
+msgstr "Rückgängig"
+
+#: src/i18n.rs:55
+msgid "Note restored"
+msgstr "Notiz wiederhergestellt"
+
+#: src/i18n.rs:59
+msgid "All conflicts resolved — sync complete"
+msgstr "Alle Konflikte gelöst – Synchronisierung abgeschlossen"
+
+#: src/i18n.rs:63
+msgid "Sync failed: {}"
+msgstr "Synchronisierung fehlgeschlagen: {}"
+
+#: src/i18n.rs:67
+msgid "{} unresolved conflicts"
+msgstr "{} ungelöste Konflikte"
+
+#: src/i18n.rs:71
+msgid "1 note needs conflict resolution"
+msgstr "1 Notiz benötigt eine Konfliktlösung"
+
+#: src/i18n.rs:75
+msgid "{} notes need conflict resolution"
+msgstr "{} Notizen benötigen eine Konfliktlösung"
+
+#: src/i18n.rs:79
+msgid "Accept Current"
+msgstr "Aktuelle übernehmen"
+
+#: src/i18n.rs:83
+msgid "Accept Incoming"
+msgstr "Inkommende übernehmen"
+
+#: src/i18n.rs:87
+msgid "Accepted current changes"
+msgstr "Aktuelle Änderungen übernommen"
+
+#: src/i18n.rs:91
+msgid "Accepted incoming changes"
+msgstr "Inkommende Änderungen übernommen"

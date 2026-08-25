@@ -1,0 +1,269 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the penna-frontend package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: penna-frontend\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-25 20:18+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: data/com.github.pennafe.desktop.in:2
+#: data/com.github.pennafe.metainfo.xml.in:7 src/window.ui:6
+msgid "Penna-frontend"
+msgstr ""
+
+#: data/com.github.pennafe.desktop.in:8
+msgid "GTK;"
+msgstr ""
+
+#: data/com.github.pennafe.metainfo.xml.in:8
+msgid "Keep the summary shorter, between 10 and 35 characters"
+msgstr ""
+
+#: data/com.github.pennafe.metainfo.xml.in:10
+msgid "No description"
+msgstr ""
+
+#: data/com.github.pennafe.metainfo.xml.in:14
+msgid "Developer name"
+msgstr ""
+
+#: data/com.github.pennafe.metainfo.xml.in:52
+#: data/com.github.pennafe.metainfo.xml.in:56
+msgid "A caption"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:6
+msgid "Selected repository path"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:7
+msgid "Journal repository path selected during setup."
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:11
+msgid "Enable confetti mode"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:12
+msgid "Mock preference used for prototype preferences window."
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:16
+msgid "Open editor in viewer mode"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:17
+msgid "Whether notes should be shown read-only instead of editable."
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:21
+msgid "Editor font preset"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:22
+msgid "Editor font option: sans, serif, or custom."
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:26
+msgid "Custom editor font family"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:27
+msgid "Custom font family used when editor font preset is custom."
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:31
+msgid "Entry date/time display format"
+msgstr ""
+
+#: data/com.github.pennafe.gschema.xml:32
+msgid ""
+"Chrono strftime format used to render entry IDs, e.g. %Y-%m-%d or %Y-%m-%d "
+"%H:%M."
+msgstr ""
+
+#: src/window.ui:30
+msgid "Back to notes grid"
+msgstr ""
+
+#: src/window.ui:36
+msgid "Turn on viewer mode"
+msgstr ""
+
+#: src/window.ui:43
+msgid "Main Menu"
+msgstr ""
+
+#: src/window.ui:68
+msgid "Connect journal repository"
+msgstr ""
+
+#: src/window.ui:82
+msgid "Choose repository folder"
+msgstr ""
+
+#: src/window.ui:90
+msgid "Choose Folder"
+msgstr ""
+
+#: src/window.ui:99
+msgid "Connect"
+msgstr ""
+
+#: src/window.ui:111
+msgid "Select your journal repository to continue."
+msgstr ""
+
+#: src/window.ui:133
+msgid "Ready"
+msgstr ""
+
+#: src/window.ui:150
+msgid "Search title and content"
+msgstr ""
+
+#: src/window.ui:164 src/i18n.rs:11
+msgid "Diary"
+msgstr ""
+
+#: src/window.ui:185
+msgid "No notes yet"
+msgstr ""
+
+#: src/window.ui:193
+msgid "Create your first note to start your journal."
+msgstr ""
+
+#: src/window.ui:207
+msgid "New Note"
+msgstr ""
+
+#: src/window.ui:251
+msgid "Editor"
+msgstr ""
+
+#: src/window.ui:307
+msgid "_New Note"
+msgstr ""
+
+#: src/window.ui:311
+msgid "_Delete Note"
+msgstr ""
+
+#: src/window.ui:317
+msgid "_Sync Now"
+msgstr ""
+
+#: src/window.ui:323
+msgid "_Preferences"
+msgstr ""
+
+#: src/window.ui:327
+msgid "_Keyboard Shortcuts"
+msgstr ""
+
+#: src/window.ui:331
+msgid "_Change Repository"
+msgstr ""
+
+#: src/window.ui:335
+msgid "_About Penna-frontend"
+msgstr ""
+
+#: src/window.ui:339
+msgid "_Quit"
+msgstr ""
+
+#: src/i18n.rs:15
+msgid "Repository path required"
+msgstr ""
+
+#: src/i18n.rs:19
+msgid "Repository selected. Click Connect."
+msgstr ""
+
+#: src/i18n.rs:23
+msgid "Connect repository before saving"
+msgstr ""
+
+#: src/i18n.rs:27
+msgid "Connect repository before deleting"
+msgstr ""
+
+#: src/i18n.rs:31
+msgid "No entry selected"
+msgstr ""
+
+#: src/i18n.rs:35
+msgid "No note selected"
+msgstr ""
+
+#: src/i18n.rs:39
+msgid "Saved via entry_save API"
+msgstr ""
+
+#: src/i18n.rs:43
+msgid "Opened today's note"
+msgstr ""
+
+#: src/i18n.rs:47
+msgid "Note deleted"
+msgstr ""
+
+#: src/i18n.rs:51
+msgid "Undo"
+msgstr ""
+
+#: src/i18n.rs:55
+msgid "Note restored"
+msgstr ""
+
+#: src/i18n.rs:59
+msgid "All conflicts resolved — sync complete"
+msgstr ""
+
+#: src/i18n.rs:63
+#, rust-format
+msgid "Sync failed: {}"
+msgstr ""
+
+#: src/i18n.rs:67
+#, rust-format
+msgid "{} unresolved conflicts"
+msgstr ""
+
+#: src/i18n.rs:71
+msgid "1 note needs conflict resolution"
+msgstr ""
+
+#: src/i18n.rs:75
+#, rust-format
+msgid "{} notes need conflict resolution"
+msgstr ""
+
+#: src/i18n.rs:79
+msgid "Accept Current"
+msgstr ""
+
+#: src/i18n.rs:83
+msgid "Accept Incoming"
+msgstr ""
+
+#: src/i18n.rs:87
+msgid "Accepted current changes"
+msgstr ""
+
+#: src/i18n.rs:91
+msgid "Accepted incoming changes"
+msgstr ""

@@ -25,6 +25,8 @@ use gtk::pango;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 
+use crate::i18n;
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -44,7 +46,6 @@ const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
 const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
-const WINDOW_TITLE_BASE: &str = "Diary";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
@@ -660,9 +661,9 @@ impl PennaFrontendWindow {
         // next to the usual editing entries; the actions enable only while
         // the caret sits inside a well-formed block.
         let conflict_menu = gio::Menu::new();
-        conflict_menu.append(Some("Accept Current"), Some("win.conflict-accept-current"));
+        conflict_menu.append(Some(&i18n::accept_current_label()), Some("win.conflict-accept-current"));
         conflict_menu.append(
-            Some("Accept Incoming"),
+            Some(&i18n::accept_incoming_label()),
             Some("win.conflict-accept-incoming"),
         );
         imp.editor_view.set_extra_menu(Some(&conflict_menu));
@@ -1521,7 +1522,12 @@ impl PennaFrontendWindow {
                 .note-row {{\
                     padding: 4px 2px;\
                 }}\
-                .note-row:focus, .note-row:focus:focus-visible {{\
+                .note-row:focus, .note-row:focus-visible, .note-row:focus:focus-visible {{\
+                    outline: none;\
+                }}\
+                flowbox.notes-grid > flowboxchild:focus, \
+                flowbox.notes-grid > flowboxchild:focus-visible, \
+                flowbox.notes-grid > flowboxchild:focus:focus-visible {{\
                     outline: none;\
                 }}\
                 .note-row.note-current {{\
@@ -1718,7 +1724,7 @@ impl PennaFrontendWindow {
         self.stop_entries_monitor();
         let repo_path = imp.repo_path_entry.text().trim().to_string();
         if repo_path.is_empty() {
-            imp.setup_status_label.set_label("Repository path required");
+            imp.setup_status_label.set_label(&i18n::repo_path_required());
             return;
         }
 
@@ -1782,8 +1788,8 @@ impl PennaFrontendWindow {
             Ok(outcome) => self.handle_sync_outcome(&outcome),
             Err(err) => {
                 imp.sync_status_label
-                    .set_label(&format!("Sync failed: {err}"));
-                let toast = adw::Toast::new(&format!("Sync failed: {err}"));
+                    .set_label(&i18n::sync_failed(&err));
+                let toast = adw::Toast::new(&i18n::sync_failed(&err));
                 toast.set_priority(adw::ToastPriority::High);
                 imp.toast_overlay.add_toast(toast);
             }
@@ -1829,14 +1835,14 @@ impl PennaFrontendWindow {
         match outcome {
             Ok(outcome) if outcome.conflicted_entry_ids.is_empty() => {
                 self.handle_sync_outcome(&outcome);
-                let toast = adw::Toast::new("All conflicts resolved — sync complete");
+                let toast = adw::Toast::new(&i18n::all_conflicts_resolved());
                 toast.set_priority(adw::ToastPriority::High);
                 imp.toast_overlay.add_toast(toast);
             }
             Ok(_) => {}
             Err(err) => imp
                 .sync_status_label
-                .set_label(&format!("Sync failed: {err}")),
+                .set_label(&i18n::sync_failed(&err)),
         }
     }
 
@@ -2251,12 +2257,12 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         let Some(handle) = *imp.current_handle.borrow() else {
             imp.sync_status_label
-                .set_label("Connect repository before saving");
+                .set_label(&i18n::connect_repository_before_saving());
             return;
         };
 
         let Some(entry_id) = imp.current_entry_id.borrow().clone() else {
-            imp.sync_status_label.set_label("No entry selected");
+            imp.sync_status_label.set_label(&i18n::no_entry_selected());
             return;
         };
 
@@ -2269,7 +2275,7 @@ impl PennaFrontendWindow {
         // those tags — and refuses to save while any remain.
         let unresolved = unresolved_conflict_count(&content);
         if unresolved > 0 {
-            let toast = adw::Toast::new(&format!("{unresolved} unresolved conflicts"));
+            let toast = adw::Toast::new(&i18n::unresolved_conflicts(unresolved));
             toast.set_priority(adw::ToastPriority::High);
             imp.toast_overlay.add_toast(toast);
             return;
@@ -2285,7 +2291,7 @@ impl PennaFrontendWindow {
         match save_result {
             Ok(()) => {
                 self.set_entry_modified(false);
-                imp.sync_status_label.set_label("Saved via entry_save API");
+                imp.sync_status_label.set_label(&i18n::saved_via_entry_save_api());
                 self.refresh_notes_grid();
                 self.show_editor_view();
                 self.maybe_conclude_merge();
@@ -2311,7 +2317,7 @@ impl PennaFrontendWindow {
         };
 
         if let Some(existing) = existing {
-            let toast = adw::Toast::new("Opened today's note");
+            let toast = adw::Toast::new(&i18n::opened_todays_note());
             imp.toast_overlay.add_toast(toast);
             self.open_entry(&existing);
             return;
@@ -2343,7 +2349,7 @@ impl PennaFrontendWindow {
         let imp = self.imp();
         let Some(handle) = *imp.current_handle.borrow() else {
             imp.sync_status_label
-                .set_label("Connect repository before deleting");
+                .set_label(&i18n::connect_repository_before_deleting());
             return;
         };
         let entry_id = if *imp.in_notes_grid_view.borrow() {
@@ -2355,7 +2361,7 @@ impl PennaFrontendWindow {
         };
 
         let Some(entry_id) = entry_id else {
-            imp.sync_status_label.set_label("No note selected");
+            imp.sync_status_label.set_label(&i18n::no_note_selected());
             return;
         };
 
@@ -2387,8 +2393,8 @@ impl PennaFrontendWindow {
         let generation = *imp.last_undo_generation.borrow() + 1;
         *imp.last_undo_generation.borrow_mut() = generation;
 
-        let toast = adw::Toast::new("Note deleted");
-        toast.set_button_label(Some("Undo"));
+        let toast = adw::Toast::new(&i18n::note_deleted());
+        toast.set_button_label(Some(&i18n::undo_button_label()));
         toast.set_timeout(5);
         toast.set_priority(adw::ToastPriority::High);
 
@@ -2419,7 +2425,7 @@ impl PennaFrontendWindow {
 
                 match result {
                     Ok(record) => {
-                        window_imp.sync_status_label.set_label("Note restored");
+                        window_imp.sync_status_label.set_label(&i18n::note_restored());
                         window.refresh_notes_grid();
                         window.open_entry(&record.entry_id);
                     }
@@ -2454,7 +2460,7 @@ impl PennaFrontendWindow {
                             let imp = window.imp();
                             imp.repo_path_entry.set_text(&path_str);
                             imp.setup_status_label
-                                .set_label("Repository selected. Click Connect.");
+                                .set_label(&i18n::repository_selected_click_connect());
                         }
                     }
                 }
@@ -2698,7 +2704,7 @@ impl PennaFrontendWindow {
             .map(Self::format_entry_date)
             .filter(|text| !text.is_empty())
             .map(|text| text.to_string())
-            .unwrap_or_else(|| WINDOW_TITLE_BASE.to_string());
+            .unwrap_or_else(i18n::diary_title);
 
         // GNOME HIG dirty-document indicator: a bullet before the title while
         // the open note has unsaved edits.
@@ -3439,10 +3445,11 @@ impl PennaFrontendWindow {
             buffer.insert(&mut insert_iter, &resolution.replacement);
         }
 
-        imp.sync_status_label.set_label(match side {
-            ConflictSide::Current => "Accepted current changes",
-            ConflictSide::Incoming => "Accepted incoming changes",
-        });
+        let message = match side {
+            ConflictSide::Current => i18n::accepted_current_changes(),
+            ConflictSide::Incoming => i18n::accepted_incoming_changes(),
+        };
+        imp.sync_status_label.set_label(&message);
     }
 
     fn parse_heading(line: &str) -> Option<(usize, usize)> {
@@ -3868,9 +3875,9 @@ fn sync_status_message(outcome: &SyncOutcome) -> String {
 
 fn sync_conflict_toast_message(count: usize) -> String {
     if count == 1 {
-        "1 note needs conflict resolution".to_string()
+        i18n::one_conflict_pending()
     } else {
-        format!("{count} notes need conflict resolution")
+        i18n::conflicts_pending(count)
     }
 }
 

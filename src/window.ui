@@ -226,6 +226,9 @@
                                     <property name="selection-mode">none</property>
                                     <property name="column-spacing">0</property>
                                     <property name="row-spacing">8</property>
+                                    <style>
+                                      <class name="notes-grid"/>
+                                    </style>
                                     <property name="min-children-per-line">1</property>
                                     <property name="max-children-per-line">1</property>
                                     <property name="margin-top">8</property>
