@@ -7,7 +7,9 @@
 
 use std::path::PathBuf;
 
-use gtk::subclass::prelude::*;
+// `window.imp()` lives behind ObjectSubclassIsExt, which gtk4's
+// subclass prelude does not re-export in this bindings generation.
+use gtk::glib::subclass::prelude::ObjectSubclassIsExt;
 
 use crate::engine::{
     ConnectResult, EngineMock, EntryRecord, EntrySnapshot, EntrySummary, JournalHandle,

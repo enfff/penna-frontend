@@ -95,10 +95,9 @@ pub fn accepted_incoming_changes() -> String {
     gettext("Accepted incoming changes")
 }
 
-pub fn change_repository() -> String {
-    gettext("Change Repository")
-}
-
+// Currently uncalled: the preferences rework replaced its only call site.
+// Kept so the msgid stays registered for translations.
+#[allow(dead_code)]
 pub fn repository_group_title() -> String {
     gettext("Repository")
 }
@@ -107,8 +106,8 @@ pub fn change_action_label() -> String {
     gettext("Change…")
 }
 
-pub fn open_in_files() -> String {
-    gettext("Open in Files")
+pub fn repository_path_label() -> String {
+    gettext("Repository path")
 }
 
 pub fn no_repository_connected() -> String {
@@ -159,7 +158,6 @@ mod i18n_surface_tests {
         assert_eq!(accept_incoming_label(), "Accept Incoming");
         assert_eq!(accepted_current_changes(), "Accepted current changes");
         assert_eq!(accepted_incoming_changes(), "Accepted incoming changes");
-        assert_eq!(change_repository(), "Change Repository");
     }
 
     #[test]

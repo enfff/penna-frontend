@@ -518,16 +518,31 @@ impl PennaFrontendApplication {
         let current_repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
 
         let change_row = adw::ActionRow::builder()
-            .title(crate::i18n::change_repository())
-            .subtitle(&current_repo_path)
+            .title(crate::i18n::repository_path_label())
+            .activatable(true)
+            .sensitive(!current_repo_path.is_empty())
             .build();
         if !current_repo_path.is_empty() {
             change_row.set_subtitle(&current_repo_path);
         } else {
             change_row.set_subtitle(crate::i18n::no_repository_connected().as_str());
         }
+        {
+            let app_window = app_window.clone();
+            let captured_path = current_repo_path.clone();
+            // Clicking the row itself opens the journal folder.
+            change_row.connect_activated(move |_| {
+                let file = gio::File::for_path(&captured_path);
+                gtk::FileLauncher::new(Some(&file)).open_containing_folder(
+                    app_window.as_ref(),
+                    None::<&gio::Cancellable>,
+                    |_| {},
+                );
+            });
+        }
         let change_button = gtk::Button::builder()
-            .label(crate::i18n::change_action_label())
+            .icon_name("folder-open-symbolic")
+            .tooltip_text(crate::i18n::change_action_label())
             .valign(gtk::Align::Center)
             .css_classes(vec!["flat".to_string()])
             .build();
@@ -538,25 +553,6 @@ impl PennaFrontendApplication {
         }
         change_row.add_suffix(&change_button);
         repository_group.add(&change_row);
-
-        let open_row = adw::ActionRow::builder()
-            .title(crate::i18n::open_in_files())
-            .activatable(true)
-            .sensitive(!current_repo_path.is_empty())
-            .build();
-        if let Some(app_window) = app_window.clone() {
-            let captured_path = current_repo_path.clone();
-            open_row.connect_activated(move |_| {
-                let file = gio::File::for_path(&captured_path);
-                let launcher = gtk::FileLauncher::new(Some(&file));
-                launcher.open_containing_folder(
-                    Some(&app_window),
-                    None::<&gio::Cancellable>,
-                    |_| {},
-                );
-            });
-        }
-        repository_group.add(&open_row);
 
         page.add(&repository_group);
         page.add(&group);

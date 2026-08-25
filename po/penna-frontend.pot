@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 23:30+0200\n"
+"POT-Creation-Date: 2026-08-25 23:51+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -307,30 +307,26 @@ msgstr ""
 msgid "Accepted incoming changes"
 msgstr ""
 
-#: src/i18n.rs:99
-msgid "Change Repository"
-msgstr ""
-
-#: src/i18n.rs:103
+#: src/i18n.rs:102
 msgid "Repository"
 msgstr ""
 
-#: src/i18n.rs:107
+#: src/i18n.rs:106
 msgid "Change…"
 msgstr ""
 
-#: src/i18n.rs:111
-msgid "Open in Files"
+#: src/i18n.rs:110
+msgid "Repository path"
 msgstr ""
 
-#: src/i18n.rs:115
+#: src/i18n.rs:114
 msgid "No repository connected yet"
 msgstr ""
 
-#: src/i18n.rs:119
+#: src/i18n.rs:118
 msgid "Choose repository folder"
 msgstr ""
 
-#: src/i18n.rs:123
+#: src/i18n.rs:122
 msgid "Unresolved sync conflict"
 msgstr ""

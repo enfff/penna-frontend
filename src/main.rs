@@ -24,6 +24,7 @@ mod config;
 mod engine;
 mod format;
 mod gestures;
+mod grid;
 mod i18n;
 mod settings;
 mod sync;
