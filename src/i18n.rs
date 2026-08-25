@@ -100,3 +100,88 @@ pub fn accepted_incoming_changes() -> String {
 pub fn change_repository() -> String {
     gettext("Change Repository")
 }
+
+pub fn choose_repository_folder() -> String {
+    gettext("Choose repository folder")
+}
+
+#[cfg(test)]
+mod i18n_surface_tests {
+    use super::*;
+
+    fn c_locale() {
+        gettextrs::setlocale(gettextrs::LocaleCategory::LcAll, "C");
+    }
+
+    #[test]
+    fn simple_helpers_return_english_msgids() {
+        c_locale();
+        assert_eq!(diary_title(), "Diary");
+        assert_eq!(repo_path_required(), "Repository path required");
+        assert_eq!(
+            repository_selected_click_connect(),
+            "Repository selected. Click Connect."
+        );
+        assert_eq!(
+            connect_repository_before_saving(),
+            "Connect repository before saving"
+        );
+        assert_eq!(
+            connect_repository_before_deleting(),
+            "Connect repository before deleting"
+        );
+        assert_eq!(no_entry_selected(), "No entry selected");
+        assert_eq!(no_note_selected(), "No note selected");
+        assert_eq!(saved_via_entry_save_api(), "Saved via entry_save API");
+        assert_eq!(opened_todays_note(), "Opened today's note");
+        assert_eq!(note_deleted(), "Note deleted");
+        assert_eq!(undo_button_label(), "Undo");
+        assert_eq!(note_restored(), "Note restored");
+        assert_eq!(
+            all_conflicts_resolved(),
+            "All conflicts resolved — sync complete"
+        );
+        assert_eq!(accept_current_label(), "Accept Current");
+        assert_eq!(accept_incoming_label(), "Accept Incoming");
+        assert_eq!(accepted_current_changes(), "Accepted current changes");
+        assert_eq!(accepted_incoming_changes(), "Accepted incoming changes");
+        assert_eq!(change_repository(), "Change Repository");
+    }
+
+    #[test]
+    fn placeholders_survive_substitution() {
+        c_locale();
+        assert_eq!(sync_failed("push rejected"), "Sync failed: push rejected");
+        assert_eq!(sync_failed(""), "Sync failed: ");
+        assert_eq!(unresolved_conflicts(7), "7 unresolved conflicts");
+        assert_eq!(
+            conflicts_pending(7),
+            "7 notes need conflict resolution"
+        );
+    }
+
+    #[test]
+    fn unresolved_conflicts_keeps_singular_plural_split() {
+        c_locale();
+        assert_eq!(unresolved_conflicts(1), "1 unresolved conflict");
+        assert_eq!(unresolved_conflicts(0), "0 unresolved conflicts");
+        assert_eq!(unresolved_conflicts(12), "12 unresolved conflicts");
+    }
+
+    #[test]
+    fn conflicts_pending_keeps_singular_plural_split() {
+        c_locale();
+        assert_eq!(
+            conflicts_pending(1),
+            "1 note needs conflict resolution"
+        );
+        assert_eq!(
+            conflicts_pending(0),
+            "0 notes need conflict resolution"
+        );
+        assert_eq!(
+            conflicts_pending(12),
+            "12 notes need conflict resolution"
+        );
+    }
+}

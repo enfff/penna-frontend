@@ -586,6 +586,34 @@ impl PennaFrontendWindow {
         self.add_action(&change_repo);
     }
 
+    /// Folder-picker entry point for changing the journal repository:
+    /// opens a native folder dialog and connects straight to the pick.
+    pub fn pick_repository_and_connect(&self) {
+        let dialog = gtk::FileDialog::new();
+        dialog.set_title(i18n::choose_repository_folder().as_str());
+        dialog.select_folder(
+            Some(self),
+            None::<&gio::Cancellable>,
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result| {
+                    let Ok(file) = result else {
+                        return; // user cancelled
+                    };
+                    let Some(path) = file.path() else {
+                        return;
+                    };
+                    window
+                        .imp()
+                        .repo_path_entry
+                        .set_text(&path.to_string_lossy());
+                    window.connect_journal();
+                }
+            ),
+        );
+    }
+
     fn setup_callbacks(&self) {
         let imp = self.imp();
 

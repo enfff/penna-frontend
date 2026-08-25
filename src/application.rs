@@ -196,11 +196,7 @@ impl PennaFrontendApplication {
             .build();
         if let Some(app_window) = app_window.clone() {
             repo_row.connect_activated(move |_| {
-                gtk::prelude::ActionGroupExt::activate_action(
-                    &app_window,
-                    "change-repo",
-                    None,
-                );
+                app_window.pick_repository_and_connect();
             });
         }
         group.add(&repo_row);

@@ -19,7 +19,7 @@ only when the gate command passes for that task's work.
       the POT, and provide de/fr/it translations for every new msgid.
       Validate the merged desktop file parses (`desktop-file-validate` if
       available).
-- [ ] T15: i18n regression guard — add unit tests that pin the i18n module's
+- [x] T15: i18n regression guard — add unit tests that pin the i18n module's
       public surface: each helper returns its English msgid under the default
       C locale, placeholders survive `{}` substitution, and
       `sync_conflict_toast_message` keeps its existing singular/plural split.
