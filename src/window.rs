@@ -1550,6 +1550,12 @@ impl PennaFrontendWindow {
                 .note-row {{\
                     padding: 4px 2px;\
                 }}\
+                /* Hover/press feedback comes from the surrounding\
+                 * flowboxchild (see libadwaita _views.scss); without this\
+                 * the flat button paints a second tint inside it. */\
+                .note-row:hover, .note-row:active {{\
+                    background: none;\
+                }}\
                 .note-row:focus, .note-row:focus-visible, .note-row:focus:focus-visible {{\
                     outline: none;\
                 }}\
