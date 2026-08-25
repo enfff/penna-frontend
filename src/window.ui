@@ -161,7 +161,7 @@
                     <child>
                       <object class="AdwNavigationPage" id="notes_page">
                         <property name="tag">notes</property>
-                        <property name="title" translatable="yes">Journal</property>
+                        <property name="title" translatable="yes">Diary</property>
                         <property name="child">
                           <object class="GtkScrolledWindow">
                             <property name="hscrollbar-policy">never</property>
