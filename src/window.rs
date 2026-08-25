@@ -20,7 +20,6 @@
 
 use adw::prelude::{AdwDialogExt, NavigationPageExt};
 use adw::subclass::prelude::*;
-use chrono::{format::Item, format::StrftimeItems, NaiveDateTime};
 use gtk::pango;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
@@ -39,6 +38,8 @@ use crate::conflict::{
 use crate::engine::{
     EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
 };
+use crate::format;
+use crate::gestures;
 use crate::settings;
 
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
@@ -47,26 +48,6 @@ const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
 const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
 const EDITOR_FONT_SIZE_MIN_PT: i32 = 10;
 const EDITOR_FONT_SIZE_MAX_PT: i32 = 28;
-const BACK_SWIPE_EDGE_ZONE_PX: f64 = 48.0;
-const BACK_SWIPE_MIN_DISTANCE_PX: f64 = 16.0;
-// Rightward-dominant motion past this commits the back-swipe. Must stay well
-// below the editor's drag threshold so the capture gesture claims the
-// sequence before the ScrolledWindow does.
-const BACK_SWIPE_EARLY_COMMIT_PX: f64 = 4.0;
-// Matches GtkSettings `gtk-dnd-drag-threshold` (default 8): the distance at
-// which the ScrolledWindow's own drag gesture would claim the sequence.
-const BACK_SWIPE_DECIDE_PX: f64 = 8.0;
-// Touchpad back-swipe: two-finger swiping reaches us as a smooth scroll
-// stream, not touch events. Accumulated deltas past this decide whether the
-// stream is horizontal enough to be a back-swipe at all.
-const BACK_SWIPE_TOUCHPAD_DECIDE_PX: f64 = 10.0;
-// Accumulated rightward travel that triggers the actual pop. The pop runs the
-// standard animated transition; there is no live finger-tracking because
-// libadwaita's interactive swipe is driven by private tracker internals we
-// cannot feed from a capture-phase controller. Keep this low so the wait
-// before the animation feels short.
-const BACK_SWIPE_TOUCHPAD_POP_PX: f64 = 40.0;
-
 const TAG_HEADING_1: &str = "md-heading-1";
 const TAG_HEADING_2: &str = "md-heading-2";
 const TAG_HEADING_3: &str = "md-heading-3";
@@ -88,7 +69,6 @@ const TAG_CONFLICT_INCOMING: &str = "conflict-incoming";
 const TAG_CONFLICT_MARKER: &str = "conflict-marker";
 const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
-const ENTRY_DATETIME_FORMAT_DEFAULT: &str = "%Y-%m-%d";
 
 struct CheckboxItem {
     marker_len: usize,
@@ -98,10 +78,6 @@ struct CheckboxItem {
 struct LinkMatch {
     label_len: usize,
     total_len: usize,
-}
-
-struct EntryTimestamp {
-    value: NaiveDateTime,
 }
 
 mod imp {
@@ -122,10 +98,6 @@ mod imp {
         pub notes_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
         pub editor_page: TemplateChild<adw::NavigationPage>,
-        #[template_child]
-        pub repo_path_entry: TemplateChild<gtk::Entry>,
-        #[template_child]
-        pub choose_repo_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub connect_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -186,8 +158,6 @@ mod imp {
                 content_view: TemplateChild::default(),
                 notes_page: TemplateChild::default(),
                 editor_page: TemplateChild::default(),
-                repo_path_entry: TemplateChild::default(),
-                choose_repo_button: TemplateChild::default(),
                 connect_button: TemplateChild::default(),
                 setup_status_label: TemplateChild::default(),
                 sync_status_label: TemplateChild::default(),
@@ -579,29 +549,7 @@ impl PennaFrontendWindow {
     /// Folder-picker entry point for changing the journal repository:
     /// opens a native folder dialog and connects straight to the pick.
     pub fn pick_repository_and_connect(&self) {
-        let dialog = gtk::FileDialog::new();
-        dialog.set_title(i18n::choose_repository_folder().as_str());
-        dialog.select_folder(
-            Some(self),
-            None::<&gio::Cancellable>,
-            glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                move |result| {
-                    let Ok(file) = result else {
-                        return; // user cancelled
-                    };
-                    let Some(path) = file.path() else {
-                        return;
-                    };
-                    window
-                        .imp()
-                        .repo_path_entry
-                        .set_text(&path.to_string_lossy());
-                    window.connect_journal();
-                }
-            ),
-        );
+        self.choose_repo_folder();
     }
 
     fn setup_callbacks(&self) {
@@ -614,17 +562,10 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
-                window.connect_journal();
-            }
-        ));
-
-        imp.choose_repo_button.connect_clicked(glib::clone!(
-            #[weak(rename_to = window)]
-            self,
-            move |_| {
                 window.choose_repo_folder();
             }
         ));
+
 
         imp.notes_empty_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
@@ -899,8 +840,8 @@ impl PennaFrontendWindow {
         ));
         imp.main_page.add_controller(grid_key_controller);
 
-        self.install_editor_back_swipe();
-        self.install_editor_back_swipe_touchpad();
+        gestures::install_editor_back_swipe(self);
+        gestures::install_editor_back_swipe_touchpad(self);
         self.load_editor_preferences();
         self.show_grid_view();
         self.initialize_repository_state();
@@ -1730,15 +1671,13 @@ impl PennaFrontendWindow {
             return;
         }
 
-        let imp = self.imp();
-        imp.repo_path_entry.set_text(&repo_path);
-        self.connect_journal();
+        self.connect_journal(&repo_path);
     }
 
-    fn connect_journal(&self) {
+    fn connect_journal(&self, repo_path: &str) {
         let imp = self.imp();
         self.stop_entries_monitor();
-        let repo_path = imp.repo_path_entry.text().trim().to_string();
+        let repo_path = repo_path.trim().to_string();
         if repo_path.is_empty() {
             imp.setup_status_label.set_label(&i18n::repo_path_required());
             return;
@@ -1915,7 +1854,8 @@ impl PennaFrontendWindow {
             row_box.set_margin_end(8);
             row_box.set_hexpand(true);
 
-            let note_label = gtk::Label::new(Some(&Self::format_entry_date(&entry.entry_id)));
+            let note_label =
+                gtk::Label::new(Some(&format::format_entry_date(&entry.entry_id)));
             note_label.set_hexpand(true);
             note_label.set_halign(gtk::Align::Start);
             note_label.set_xalign(0.0);
@@ -2466,7 +2406,7 @@ impl PennaFrontendWindow {
 
     fn choose_repo_folder(&self) {
         let dialog = gtk::FileDialog::builder()
-            .title("Choose journal repository")
+            .title(i18n::choose_repository_folder().as_str())
             .accept_label("Select")
             .modal(true)
             .build();
@@ -2481,10 +2421,7 @@ impl PennaFrontendWindow {
                     if let Ok(file) = result {
                         if let Some(path) = file.path() {
                             let path_str = path.to_string_lossy().to_string();
-                            let imp = window.imp();
-                            imp.repo_path_entry.set_text(&path_str);
-                            imp.setup_status_label
-                                .set_label(&i18n::repository_selected_click_connect());
+                            window.connect_journal(&path_str);
                         }
                     }
                 }
@@ -2665,64 +2602,10 @@ impl PennaFrontendWindow {
             .max()
     }
 
-    fn format_entry_date(entry_id: &str) -> String {
-        let Some(timestamp) = Self::parse_entry_timestamp(entry_id) else {
-            return entry_id.to_string();
-        };
-
-        let fmt = Self::effective_entry_datetime_format();
-        // `write_to` returns a Result instead of panicking: some valid format
-        // items (e.g. `%z`, timezone offset) parse fine but cannot be rendered
-        // for a `NaiveDateTime`, making chrono's `Display` return an error.
-        // Fall back to the default format so a bad persisted setting degrades
-        // to a normal date instead of crashing startup.
-        let mut buffer = String::new();
-        if timestamp.value.format(&fmt).write_to(&mut buffer).is_err() {
-            buffer.clear();
-            let _ = timestamp
-                .value
-                .format(ENTRY_DATETIME_FORMAT_DEFAULT)
-                .write_to(&mut buffer);
-        }
-        if buffer.is_empty() {
-            return entry_id.to_string();
-        }
-        buffer
-    }
-
-    fn parse_entry_timestamp(entry_id: &str) -> Option<EntryTimestamp> {
-        let stem = entry_id.strip_suffix(".md")?;
-        if stem.len() != 12 || !stem.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-
-        let timestamp = NaiveDateTime::parse_from_str(stem, "%Y%m%d%H%M").ok()?;
-        Some(EntryTimestamp { value: timestamp })
-    }
-
-    fn effective_entry_datetime_format() -> String {
-        let raw = settings::get_str(settings::SETTINGS_ENTRY_DATETIME_FORMAT_KEY);
-        let candidate = if raw.trim().is_empty() {
-            ENTRY_DATETIME_FORMAT_DEFAULT
-        } else {
-            raw.trim()
-        };
-
-        if Self::is_valid_chrono_format(candidate) {
-            candidate.to_string()
-        } else {
-            ENTRY_DATETIME_FORMAT_DEFAULT.to_string()
-        }
-    }
-
-    fn is_valid_chrono_format(format: &str) -> bool {
-        !StrftimeItems::new(format).any(|item| matches!(item, Item::Error))
-    }
-
     fn update_window_title(&self, entry_id: Option<&str>) {
         let imp = self.imp();
         let base = entry_id
-            .map(Self::format_entry_date)
+            .map(format::format_entry_date)
             .filter(|text| !text.is_empty())
             .map(|text| text.to_string())
             .unwrap_or_else(i18n::diary_title);
@@ -3973,82 +3856,6 @@ mod sync_message_tests {
             sync_conflict_toast_message(3),
             "3 notes need conflict resolution"
         );
-    }
-}
-
-#[cfg(test)]
-mod entry_id_tests {
-    use super::*;
-
-    const ENTRY_ID_STEM_FORMAT: &str = "%Y%m%d%H%M";
-
-    fn format_id(timestamp: NaiveDateTime) -> String {
-        format!("{}.md", timestamp.format(ENTRY_ID_STEM_FORMAT))
-    }
-
-    #[test]
-    fn round_trip_parse_format_parse() {
-        for id in [
-            "202608241542.md",
-            "202402291230.md",
-            "202501010000.md",
-            "199912312359.md",
-        ] {
-            let first = PennaFrontendWindow::parse_entry_timestamp(id)
-                .unwrap_or_else(|| panic!("{id} should parse"));
-            let formatted = format_id(first.value);
-            assert_eq!(formatted, id, "formatting should reproduce the id");
-
-            let second = PennaFrontendWindow::parse_entry_timestamp(&formatted)
-                .unwrap_or_else(|| panic!("canonical {formatted} should re-parse"));
-            assert_eq!(second.value, first.value, "re-parsing should be lossless");
-        }
-    }
-
-    #[test]
-    fn round_trip_from_arbitrary_timestamp() {
-        let timestamp =
-            NaiveDateTime::parse_from_str("2017-05-03T07:09", "%Y-%m-%dT%H:%M").unwrap();
-        let id = format_id(timestamp);
-        assert_eq!(id, "201705030709.md");
-
-        let parsed = PennaFrontendWindow::parse_entry_timestamp(&id)
-            .unwrap_or_else(|| panic!("{id} should parse"));
-        assert_eq!(parsed.value, timestamp);
-        assert_eq!(format_id(parsed.value), id);
-    }
-
-    #[test]
-    fn rejects_wrong_length() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("20260824154.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026082415429.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp(".md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("").is_none());
-    }
-
-    #[test]
-    fn rejects_non_digits() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026O8241542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026082A1542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("abcdefabcdef.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("2026-82415-2.md").is_none());
-    }
-
-    #[test]
-    fn rejects_wrong_extension() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.txt").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.markdown").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.MD").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202608241542.md.md").is_none());
-    }
-
-    #[test]
-    fn rejects_invalid_calendar_values() {
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202602301542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202613011542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202601012542.md").is_none());
-        assert!(PennaFrontendWindow::parse_entry_timestamp("202402290000.md").is_some());
     }
 }
 

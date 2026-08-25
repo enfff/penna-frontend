@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-25 22:21+0200\n"
+"POT-Creation-Date: 2026-08-25 23:25+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,7 +19,7 @@ msgstr ""
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
 #: data/io.github.enfff.Diary.desktop.in:2
-#: data/io.github.enfff.Diary.metainfo.xml.in:7 src/window.ui:171
+#: data/io.github.enfff.Diary.metainfo.xml.in:7 src/window.ui:161
 #: src/i18n.rs:11
 msgid "Diary"
 msgstr ""
@@ -167,70 +167,64 @@ msgid "Turn on viewer mode"
 msgstr ""
 
 #: src/window.ui:75
-msgid "Connect journal repository"
+msgid "Welcome to Diary"
 msgstr ""
 
-#: src/window.ui:89 src/i18n.rs:105
-msgid "Choose repository folder"
+#: src/window.ui:83
+msgid ""
+"Pick a folder for your journal. Notes are stored as plain Markdown files in "
+"a git repository you control."
 msgstr ""
 
-#: src/window.ui:97
-msgid "Choose Folder"
+#: src/window.ui:94
+msgid "Create or load a repository"
 msgstr ""
 
-#: src/window.ui:106
-msgid "Connect"
-msgstr ""
-
-#: src/window.ui:118
-msgid "Select your journal repository to continue."
-msgstr ""
-
-#: src/window.ui:140
+#: src/window.ui:130
 msgid "Ready"
 msgstr ""
 
-#: src/window.ui:157
+#: src/window.ui:147
 msgid "Search title and content"
 msgstr ""
 
-#: src/window.ui:192
+#: src/window.ui:182
 msgid "No notes yet"
 msgstr ""
 
-#: src/window.ui:200
+#: src/window.ui:190
 msgid "Create your first note to start your journal."
 msgstr ""
 
-#: src/window.ui:214
+#: src/window.ui:204
 msgid "New Note"
 msgstr ""
 
-#: src/window.ui:258
+#: src/window.ui:248
 msgid "Editor"
 msgstr ""
 
-#: src/window.ui:314
+#: src/window.ui:304
 msgid "_New Note"
 msgstr ""
 
-#: src/window.ui:318
+#: src/window.ui:308
 msgid "_Delete Note"
 msgstr ""
 
-#: src/window.ui:324
+#: src/window.ui:314
 msgid "_Preferences"
 msgstr ""
 
-#: src/window.ui:328
+#: src/window.ui:318
 msgid "_Keyboard Shortcuts"
 msgstr ""
 
-#: src/window.ui:332
+#: src/window.ui:322
 msgid "_About Penna-frontend"
 msgstr ""
 
-#: src/window.ui:336
+#: src/window.ui:326
 msgid "_Quit"
 msgstr ""
 
@@ -238,89 +232,89 @@ msgstr ""
 msgid "Repository path required"
 msgstr ""
 
-#: src/i18n.rs:19
-msgid "Repository selected. Click Connect."
-msgstr ""
-
-#: src/i18n.rs:23
+#: src/i18n.rs:21
 msgid "Connect repository before saving"
 msgstr ""
 
-#: src/i18n.rs:27
+#: src/i18n.rs:25
 msgid "Connect repository before deleting"
 msgstr ""
 
-#: src/i18n.rs:31
+#: src/i18n.rs:29
 msgid "No entry selected"
 msgstr ""
 
-#: src/i18n.rs:35
+#: src/i18n.rs:33
 msgid "No note selected"
 msgstr ""
 
-#: src/i18n.rs:39
+#: src/i18n.rs:37
 msgid "Saved"
 msgstr ""
 
-#: src/i18n.rs:43
+#: src/i18n.rs:41
 msgid "Opened today's note"
 msgstr ""
 
-#: src/i18n.rs:47
+#: src/i18n.rs:45
 msgid "Note deleted"
 msgstr ""
 
-#: src/i18n.rs:51
+#: src/i18n.rs:49
 msgid "Undo"
 msgstr ""
 
-#: src/i18n.rs:55
+#: src/i18n.rs:53
 msgid "Note restored"
 msgstr ""
 
-#: src/i18n.rs:59
+#: src/i18n.rs:57
 msgid "All conflicts resolved — sync complete"
 msgstr ""
 
-#: src/i18n.rs:63
+#: src/i18n.rs:61
 #, rust-format
 msgid "Sync failed: {}"
 msgstr ""
 
-#: src/i18n.rs:68
+#: src/i18n.rs:66
 #, rust-format
 msgid "{} unresolved conflict"
 msgid_plural "{} unresolved conflicts"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/i18n.rs:77
+#: src/i18n.rs:75
 #, rust-format
 msgid "{} note needs conflict resolution"
 msgid_plural "{} notes need conflict resolution"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/i18n.rs:85
+#: src/i18n.rs:83
 msgid "Accept Current"
 msgstr ""
 
-#: src/i18n.rs:89
+#: src/i18n.rs:87
 msgid "Accept Incoming"
 msgstr ""
 
-#: src/i18n.rs:93
+#: src/i18n.rs:91
 msgid "Accepted current changes"
 msgstr ""
 
-#: src/i18n.rs:97
+#: src/i18n.rs:95
 msgid "Accepted incoming changes"
 msgstr ""
 
-#: src/i18n.rs:101
+#: src/i18n.rs:99
 msgid "Change Repository"
 msgstr ""
 
-#: src/i18n.rs:109
+#: src/i18n.rs:103
+msgid "Choose repository folder"
+msgstr ""
+
+#: src/i18n.rs:107
 msgid "Unresolved sync conflict"
 msgstr ""

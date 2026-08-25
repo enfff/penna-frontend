@@ -15,9 +15,7 @@ pub fn repo_path_required() -> String {
     gettext("Repository path required")
 }
 
-pub fn repository_selected_click_connect() -> String {
-    gettext("Repository selected. Click Connect.")
-}
+
 
 pub fn connect_repository_before_saving() -> String {
     gettext("Connect repository before saving")
@@ -122,10 +120,6 @@ mod i18n_surface_tests {
         c_locale();
         assert_eq!(diary_title(), "Diary");
         assert_eq!(repo_path_required(), "Repository path required");
-        assert_eq!(
-            repository_selected_click_connect(),
-            "Repository selected. Click Connect."
-        );
         assert_eq!(
             connect_repository_before_saving(),
             "Connect repository before saving"

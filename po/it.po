@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend 0.1.3\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: 2026-08-25 21:00+0200\n"
+"PO-Revision-Date: 2026-08-25 23:40+0200\n"
 "Last-Translator: Francesco P. Carmone\n"
 "Language-Team: Italian\n"
 "Language: it\n"
@@ -31,7 +31,7 @@ msgstr "GTK;Diario;Note;"
 
 #: data/io.github.enfff.Diary.metainfo.xml.in:8
 msgid "A calm place for daily notes"
-msgstr "Un luogo tranquillo per le pagine di ogni giorno"
+msgstr "Un luogo tranquillo per le note di ogni giorno"
 
 #: data/io.github.enfff.Diary.metainfo.xml.in:15
 msgid "Highlights:"
@@ -142,70 +142,58 @@ msgid "Turn on viewer mode"
 msgstr "Attiva la modalità lettura"
 
 #: src/window.ui:75
-msgid "Connect journal repository"
-msgstr "Connetti il repository del diario"
+msgid "Welcome to Diary"
+msgstr "Benvenuto in Diary"
 
-#: src/window.ui:89 src/i18n.rs:105
-msgid "Choose repository folder"
-msgstr "Scegli la cartella del repository"
+#: src/window.ui:94
+msgid "Create or load a repository"
+msgstr "Crea o apri un repository"
 
-#: src/window.ui:97
-msgid "Choose Folder"
-msgstr "Scegli cartella"
-
-#: src/window.ui:106
-msgid "Connect"
-msgstr "Connetti"
-
-#: src/window.ui:118
-msgid "Select your journal repository to continue."
-msgstr "Seleziona il repository del tuo diario per continuare."
-
-#: src/window.ui:140
+#: src/window.ui:130
 msgid "Ready"
 msgstr "Pronto"
 
-#: src/window.ui:157
+#: src/window.ui:147
 msgid "Search title and content"
 msgstr "Cerca nel titolo e nel contenuto"
 
-#: src/window.ui:192
+#: src/window.ui:182
 msgid "No notes yet"
-msgstr "Ancora nessuna pagina"
+msgstr "Ancora nessuna nota"
 
-#: src/window.ui:200
+#: src/window.ui:190
 msgid "Create your first note to start your journal."
-msgstr "Crea la tua prima pagina per iniziare il tuo diario."
+msgstr "Crea la tua prima nota per iniziare il tuo diario."
 
-#: src/window.ui:214
+#: src/window.ui:204
 msgid "New Note"
-msgstr "Nuova pagina"
+msgstr "Nuova nota"
 
-#: src/window.ui:258
+#: src/window.ui:248
 msgid "Editor"
 msgstr "Editor"
 
-#: src/window.ui:314
+#: src/window.ui:304
 msgid "_New Note"
-msgstr "_Nuova pagina"
+msgstr "_Nuova nota"
 
-#: src/window.ui:318
+#: src/window.ui:308
 msgid "_Delete Note"
-msgstr "_Elimina pagina"
+msgstr "_Elimina nota"
 
-#: src/window.ui:324
+#: src/window.ui:314
 msgid "_Preferences"
 msgstr "_Preferenze"
 
-#: src/window.ui:328
+#: src/window.ui:318
 msgid "_Keyboard Shortcuts"
 msgstr "_Scorciatoie da tastiera"
 
-#: src/window.ui:332
+#: src/window.ui:322
 msgid "_About Penna-frontend"
 msgstr "_Informazioni su Penna-frontend"
 
-#: src/window.ui:336
+#: src/window.ui:326
 msgid "_Quit"
 msgstr "_Esci"
 
@@ -213,86 +201,86 @@ msgstr "_Esci"
 msgid "Repository path required"
 msgstr "Percorso del repository obbligatorio"
 
-#: src/i18n.rs:19
-msgid "Repository selected. Click Connect."
-msgstr "Repository selezionata. Fai clic su Connetti."
-
-#: src/i18n.rs:23
+#: src/i18n.rs:21
 msgid "Connect repository before saving"
-msgstr "Connetti la repository prima di salvare"
+msgstr "Connetti il repository prima di salvare"
 
-#: src/i18n.rs:27
+#: src/i18n.rs:25
 msgid "Connect repository before deleting"
-msgstr "Connetti la repository prima di eliminare"
+msgstr "Connetti il repository prima di eliminare"
 
-#: src/i18n.rs:31
+#: src/i18n.rs:29
 msgid "No entry selected"
 msgstr "Nessuna voce selezionata"
 
-#: src/i18n.rs:35
+#: src/i18n.rs:33
 msgid "No note selected"
 msgstr "Nessuna nota selezionata"
 
-#: src/i18n.rs:39
+#: src/i18n.rs:37
 msgid "Saved"
 msgstr "Salvato"
 
-#: src/i18n.rs:43
+#: src/i18n.rs:41
 msgid "Opened today's note"
-msgstr "Aperta voce di oggi"
+msgstr "Nota di oggi aperta"
 
-#: src/i18n.rs:47
+#: src/i18n.rs:45
 msgid "Note deleted"
-msgstr "Pagina eliminata"
+msgstr "Nota eliminata"
 
-#: src/i18n.rs:51
+#: src/i18n.rs:49
 msgid "Undo"
 msgstr "Annulla"
 
-#: src/i18n.rs:55
+#: src/i18n.rs:53
 msgid "Note restored"
-msgstr "Pagina ripristinata"
+msgstr "Nota ripristinata"
 
-#: src/i18n.rs:59
+#: src/i18n.rs:57
 msgid "All conflicts resolved — sync complete"
 msgstr "Tutti i conflitti risolti — sincronizzazione completata"
 
-#: src/i18n.rs:63
+#: src/i18n.rs:61
 msgid "Sync failed: {}"
 msgstr "Sincronizzazione non riuscita: {}"
 
-#: src/i18n.rs:68
+#: src/i18n.rs:66
 msgid "{} unresolved conflict"
 msgid_plural "{} unresolved conflicts"
 msgstr[0] "{} conflitto irrisolto"
 msgstr[1] "{} conflitti irrisolti"
 
-#: src/i18n.rs:77
+#: src/i18n.rs:75
 msgid "{} note needs conflict resolution"
 msgid_plural "{} notes need conflict resolution"
-msgstr[0] "{} pagina richiede una risoluzione dei conflitti"
-msgstr[1] "{} pagina richiedono una risoluzione dei conflitti"
+msgstr[0] "{} nota richiede una risoluzione dei conflitti"
+msgstr[1] "{} note richiedono una risoluzione dei conflitti"
 
-#: src/i18n.rs:85
+#: src/i18n.rs:83
 msgid "Accept Current"
 msgstr "Accetta attuale"
 
-#: src/i18n.rs:89
+#: src/i18n.rs:87
 msgid "Accept Incoming"
 msgstr "Accetta in arrivo"
 
-#: src/i18n.rs:93
+#: src/i18n.rs:91
 msgid "Accepted current changes"
 msgstr "Modifiche attuali accettate"
 
-#: src/i18n.rs:97
+#: src/i18n.rs:95
 msgid "Accepted incoming changes"
 msgstr "Modifiche in arrivo accettate"
 
-#: src/i18n.rs:101
+#: src/i18n.rs:99
 msgid "Change Repository"
 msgstr "Cambia repository"
 
-#: src/i18n.rs:109
+#: src/i18n.rs:103
+msgid "Choose repository folder"
+msgstr "Scegli la cartella del repository"
+
+#: src/i18n.rs:107
 msgid "Unresolved sync conflict"
 msgstr "Conflitto di sincronizzazione irrisolto"

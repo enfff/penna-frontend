@@ -22,6 +22,7 @@ mod application;
 mod conflict;
 mod config;
 mod engine;
+mod format;
 mod i18n;
 mod settings;
 mod window;
