@@ -18,22 +18,25 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-use gtk::prelude::*;
 use adw::prelude::{AdwDialogExt, NavigationPageExt};
 use adw::subclass::prelude::*;
-use gtk::{gdk, gio, glib};
-use gtk::pango;
 use chrono::{format::Item, format::StrftimeItems, NaiveDateTime};
+use gtk::pango;
+use gtk::prelude::*;
+use gtk::{gdk, gio, glib};
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::conflict::{
-    ConflictBlock, ConflictSide, ConflictSpanKind, conflict_block_at_line, conflict_style_spans,
-    unresolved_conflict_count,
+    conflict_block_at_line, conflict_style_spans, unresolved_conflict_count, ConflictBlock,
+    ConflictSide, ConflictSpanKind,
 };
-use crate::engine::{EngineMock, EntrySnapshot, JournalHandle, JournalKind, SyncOutcome};
+use crate::engine::{
+    EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
+};
 
 const SETTINGS_SCHEMA_ID: &str = "com.github.pennafe";
 const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
@@ -41,13 +44,38 @@ const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
 const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
-const WINDOW_TITLE_BASE: &str = "Journal";
+const WINDOW_TITLE_BASE: &str = "Diary";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
 const EDITOR_FONT_SIZE_DEFAULT_PT: i32 = 14;
 const EDITOR_FONT_SIZE_MIN_PT: i32 = 10;
 const EDITOR_FONT_SIZE_MAX_PT: i32 = 28;
+const BACK_SWIPE_EDGE_ZONE_PX: f64 = 48.0;
+const BACK_SWIPE_MIN_DISTANCE_PX: f64 = 16.0;
+// Rightward-dominant motion past this commits the back-swipe. Must stay well
+// below the editor's drag threshold so the capture gesture claims the
+// sequence before the ScrolledWindow does.
+const BACK_SWIPE_EARLY_COMMIT_PX: f64 = 4.0;
+// Matches GtkSettings `gtk-dnd-drag-threshold` (default 8): the distance at
+// which the ScrolledWindow's own drag gesture would claim the sequence.
+const BACK_SWIPE_DECIDE_PX: f64 = 8.0;
+// Touchpad back-swipe: two-finger swiping reaches us as a smooth scroll
+// stream, not touch events. Accumulated deltas past this decide whether the
+// stream is horizontal enough to be a back-swipe at all.
+const BACK_SWIPE_TOUCHPAD_DECIDE_PX: f64 = 10.0;
+// Accumulated rightward travel that triggers the actual pop. The pop runs the
+// standard animated transition; there is no live finger-tracking because
+// libadwaita's interactive swipe is driven by private tracker internals we
+// cannot feed from a capture-phase controller. Keep this low so the wait
+// before the animation feels short.
+const BACK_SWIPE_TOUCHPAD_POP_PX: f64 = 40.0;
+
+fn swipe_trace(msg: &str) {
+    if std::env::var_os("PENNA_DEBUG_SWIPE").is_some() {
+        eprintln!("[swipe] {msg}");
+    }
+}
 const TAG_HEADING_1: &str = "md-heading-1";
 const TAG_HEADING_2: &str = "md-heading-2";
 const TAG_HEADING_3: &str = "md-heading-3";
@@ -138,7 +166,7 @@ mod imp {
         #[template_child]
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
 
-        pub engine: RefCell<EngineMock>,
+        pub engine: Arc<Mutex<EngineMock>>,
         pub current_handle: RefCell<Option<JournalHandle>>,
         pub current_entry_id: RefCell<Option<String>>,
         pub current_entry_tags: RefCell<Vec<String>>,
@@ -155,6 +183,7 @@ mod imp {
         pub editor_font_size_pt: RefCell<i32>,
         pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
+        pub modified: RefCell<bool>,
     }
 
     impl Default for PennaFrontendWindow {
@@ -183,7 +212,7 @@ mod imp {
                 main_menu_button: TemplateChild::default(),
                 back_to_grid_button: TemplateChild::default(),
                 toast_overlay: TemplateChild::default(),
-                engine: RefCell::default(),
+                engine: Arc::new(Mutex::new(EngineMock::default())),
                 current_handle: RefCell::default(),
                 current_entry_id: RefCell::default(),
                 current_entry_tags: RefCell::default(),
@@ -200,6 +229,7 @@ mod imp {
                 editor_font_size_pt: RefCell::new(EDITOR_FONT_SIZE_DEFAULT_PT),
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
+                modified: RefCell::default(),
             }
         }
     }
@@ -235,7 +265,10 @@ mod imp {
 
 glib::wrapper! {
     pub struct PennaFrontendWindow(ObjectSubclass<imp::PennaFrontendWindow>)
-        @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow, adw::ApplicationWindow,        @implements gio::ActionGroup, gio::ActionMap;
+        @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow, adw::ApplicationWindow,
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget,
+                    gtk::Native, gtk::Root, gtk::ShortcutManager,
+                    gio::ActionGroup, gio::ActionMap;
 }
 
 impl PennaFrontendWindow {
@@ -253,7 +286,7 @@ impl PennaFrontendWindow {
         self.refresh_notes_grid();
 
         // The headerbar shows the formatted entry date only while an entry is
-        // open in the editor. On the notes grid the title stays "Journal", so
+        // open in the editor. On the notes grid the title stays "Diary", so
         // format changes must not touch it.
         if !*self.imp().in_editor_view.borrow() {
             return;
@@ -379,7 +412,8 @@ impl PennaFrontendWindow {
         accept_current_conflict.set_enabled(false);
         self.add_action(&accept_current_conflict);
 
-        let accept_incoming_conflict = gio::SimpleAction::new(ACTION_CONFLICT_ACCEPT_INCOMING, None);
+        let accept_incoming_conflict =
+            gio::SimpleAction::new(ACTION_CONFLICT_ACCEPT_INCOMING, None);
         accept_incoming_conflict.connect_activate(glib::clone!(
             #[weak(rename_to = window)]
             self,
@@ -603,6 +637,7 @@ impl PennaFrontendWindow {
             move |_| {
                 window.apply_markdown_styling();
                 window.update_conflict_actions();
+                window.set_entry_modified(true);
                 window.queue_follow_editor_cursor();
             }
         ));
@@ -626,7 +661,10 @@ impl PennaFrontendWindow {
         // the caret sits inside a well-formed block.
         let conflict_menu = gio::Menu::new();
         conflict_menu.append(Some("Accept Current"), Some("win.conflict-accept-current"));
-        conflict_menu.append(Some("Accept Incoming"), Some("win.conflict-accept-incoming"));
+        conflict_menu.append(
+            Some("Accept Incoming"),
+            Some("win.conflict-accept-incoming"),
+        );
         imp.editor_view.set_extra_menu(Some(&conflict_menu));
 
         imp.notes_search_entry.connect_search_changed(glib::clone!(
@@ -756,16 +794,22 @@ impl PennaFrontendWindow {
             #[upgrade_or]
             glib::Propagation::Proceed,
             move |_, keyval, _, _| {
-                if matches!(keyval.to_unicode(), Some(' ')) && window.convert_leading_hyphen_to_bullet() {
+                if matches!(keyval.to_unicode(), Some(' '))
+                    && window.convert_leading_hyphen_to_bullet()
+                {
                     return glib::Propagation::Stop;
                 }
 
-                if matches!(keyval.to_unicode(), Some('`')) && window.expand_code_block_from_backticks() {
+                if matches!(keyval.to_unicode(), Some('`'))
+                    && window.expand_code_block_from_backticks()
+                {
                     return glib::Propagation::Stop;
                 }
 
-                if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter)
-                    && window.continue_list_on_enter()
+                if matches!(
+                    keyval,
+                    gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter
+                ) && window.continue_list_on_enter()
                 {
                     return glib::Propagation::Stop;
                 }
@@ -793,7 +837,10 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Proceed;
                 }
 
-                if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter) {
+                if matches!(
+                    keyval,
+                    gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter
+                ) {
                     if let Some(button) = window.selected_note_button() {
                         let entry_id = button.widget_name().to_string();
                         if !entry_id.is_empty() {
@@ -833,9 +880,219 @@ impl PennaFrontendWindow {
         ));
         imp.main_page.add_controller(grid_key_controller);
 
+        self.install_editor_back_swipe();
+        self.install_editor_back_swipe_touchpad();
         self.load_editor_preferences();
         self.show_grid_view();
         self.initialize_repository_state();
+    }
+
+    // NavigationView's built-in back-swipe is a bubble-phase gesture, so it
+    // loses arbitration to the editor's ScrolledWindow once a note is long
+    // enough to scroll and the swipe never fires. Re-adding it as a
+    // capture-phase drag on the editor page makes it the first gesture
+    // consulted, ahead of any descendant. It claims the sequence as soon as
+    // the drag is clearly a rightward swipe from the left edge, which cancels
+    // every descendant gesture (the ScrolledWindow included) before its
+    // bubble phase runs; anything else (vertical scroll, a touch that did not
+    // start at the edge) is denied so the usual scrolling / text behaviour
+    // still works.
+    fn install_editor_back_swipe(&self) {
+        #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+        enum Phase {
+            Ignored,
+            Deciding,
+            Back,
+        }
+        let phase: Rc<Cell<Option<Phase>>> = Rc::new(Cell::new(None));
+
+        let gesture = gtk::GestureDrag::builder().touch_only(true).build();
+        gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+
+        {
+            let phase = Rc::clone(&phase);
+            gesture.connect_drag_begin(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |gesture, start_x, _| {
+                    let imp = window.imp();
+                    let in_editor = *imp.in_editor_view.borrow();
+                    swipe_trace(&format!("begin start_x={start_x:.1} in_editor={in_editor}"));
+                    if !in_editor || start_x > BACK_SWIPE_EDGE_ZONE_PX {
+                        phase.set(Some(Phase::Ignored));
+                        gesture.set_state(gtk::EventSequenceState::Denied);
+                        return;
+                    }
+                    phase.set(Some(Phase::Deciding));
+                }
+            ));
+        }
+
+        {
+            let phase = Rc::clone(&phase);
+            gesture.connect_drag_update(move |gesture, dx, dy| {
+                let current = phase.get();
+                swipe_trace(&format!("update phase={current:?} dx={dx:.1} dy={dy:.1}"));
+                if current != Some(Phase::Deciding) {
+                    return;
+                }
+                if dx >= BACK_SWIPE_EARLY_COMMIT_PX && dx >= dy.abs() {
+                    // Commit before the ScrolledWindow's drag gesture reaches
+                    // its threshold: claiming from a capture phase cancels
+                    // all descendant gestures for this sequence.
+                    phase.set(Some(Phase::Back));
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    swipe_trace("update -> COMMIT (claimed)");
+                } else if dx.abs() >= BACK_SWIPE_DECIDE_PX || dy.abs() >= BACK_SWIPE_DECIDE_PX {
+                    // Past the scroll threshold without a rightward commit:
+                    // this is a scroll or other gesture, not a back-swipe.
+                    phase.set(Some(Phase::Ignored));
+                    gesture.set_state(gtk::EventSequenceState::Denied);
+                    swipe_trace("update -> DENY");
+                }
+            });
+        }
+
+        {
+            gesture.connect_sequence_state_changed(move |gesture, _, state| {
+                let seq = gesture.current_sequence();
+                let seq_state = gesture.sequence_state(seq.as_ref().unwrap());
+                swipe_trace(&format!("state_changed -> {state:?} (query={seq_state:?})"));
+            });
+        }
+
+        {
+            let phase = Rc::clone(&phase);
+            gesture.connect_drag_end(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_, dx, _| {
+                    let confirmed =
+                        phase.get() == Some(Phase::Back) && dx >= BACK_SWIPE_MIN_DISTANCE_PX;
+                    swipe_trace(&format!("end dx={dx:.1} confirmed={confirmed}"));
+                    phase.set(None);
+                    if confirmed {
+                        window.show_grid_view();
+                    }
+                }
+            ));
+        }
+
+        self.imp().editor_page.add_controller(gesture);
+    }
+
+    // Touchpads never produce touch events: a two-finger swipe arrives as a
+    // smooth scroll stream. libadwaita's NavigationView handles these via a
+    // bubble-phase scroll controller (see adw-swipe-tracker.c), which works
+    // until the editor's ScrolledWindow starts consuming the stream for
+    // vertical scrolling on long notes — the tracker is starved and the
+    // built-in back-swipe dies. So we watch the stream ourselves from a
+    // capture-phase EventControllerScroll on the editor page, mirroring the
+    // tracker's semantics: touchpad swipes are not positional, so no edge
+    // zone applies (its default swipe area is the whole view), and with
+    // natural scrolling a rightward finger push yields NEGATIVE dx (the
+    // tracker likewise maps delta < 0 to back-navigation). Only engage when
+    // the content is actually scrollable — otherwise the built-in tracker
+    // still works and we'd risk double-popping.
+    fn install_editor_back_swipe_touchpad(&self) {
+        #[derive(Clone, Copy)]
+        enum Stream {
+            Idle,
+            Armed { acc_dx: f64, acc_dy: f64 },
+            Done,
+        }
+        let stream: Rc<Cell<Stream>> = Rc::new(Cell::new(Stream::Idle));
+
+        let gesture = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+        gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+
+        {
+            let stream = Rc::clone(&stream);
+            gesture.connect_scroll_begin(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_| {
+                    stream.set(Stream::Idle);
+                    let imp = window.imp();
+                    let in_editor = *imp.in_editor_view.borrow();
+                    // Touchpad swipes are not positional: engage anywhere on
+                    // the page, like libadwaita's own whole-view swipe area.
+                    let armed = in_editor && window.editor_content_scrollable();
+                    if armed {
+                        stream.set(Stream::Armed {
+                            acc_dx: 0.0,
+                            acc_dy: 0.0,
+                        });
+                    }
+                    swipe_trace(&format!("tp-begin in_editor={in_editor} armed={armed}"));
+                }
+            ));
+        }
+
+        {
+            let stream = Rc::clone(&stream);
+            gesture.connect_scroll(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                #[upgrade_or_else]
+                || glib::Propagation::Proceed,
+                move |_, dx, dy| {
+                    match stream.get() {
+                        Stream::Idle => glib::Propagation::Proceed,
+                        Stream::Done => glib::Propagation::Stop,
+                        Stream::Armed {
+                            mut acc_dx,
+                            mut acc_dy,
+                        } => {
+                            acc_dx += dx;
+                            acc_dy += dy;
+                            if acc_dx.abs().max(acc_dy.abs()) >= BACK_SWIPE_TOUCHPAD_DECIDE_PX {
+                                // Natural scrolling: a rightward finger push
+                                // arrives as negative dx, matching how the
+                                // tracker maps delta < 0 to back-navigation.
+                                if acc_dx < 0.0 && -acc_dx >= acc_dy.abs() {
+                                    if -acc_dx >= BACK_SWIPE_TOUCHPAD_POP_PX {
+                                        swipe_trace("tp-commit -> POP");
+                                        window.show_grid_view();
+                                        stream.set(Stream::Done);
+                                        return glib::Propagation::Stop;
+                                    }
+                                } else {
+                                    swipe_trace(&format!(
+                                        "tp-abandon acc=({acc_dx:.1},{acc_dy:.1})"
+                                    ));
+                                    stream.set(Stream::Idle);
+                                    return glib::Propagation::Proceed;
+                                }
+                            }
+                            stream.set(Stream::Armed { acc_dx, acc_dy });
+                            glib::Propagation::Proceed
+                        }
+                    }
+                }
+            ));
+        }
+
+        {
+            let stream = Rc::clone(&stream);
+            gesture.connect_scroll_end(move |_| {
+                swipe_trace("tp-end");
+                stream.set(Stream::Idle);
+            });
+        }
+
+        self.imp().editor_page.add_controller(gesture);
+    }
+
+    fn editor_content_scrollable(&self) -> bool {
+        self.imp()
+            .editor_view
+            .ancestor(gtk::ScrolledWindow::static_type())
+            .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+            .is_some_and(|scrolled| {
+                let adj = scrolled.vadjustment();
+                adj.upper() > adj.page_size() + 1.0
+            })
     }
 
     fn load_editor_preferences(&self) {
@@ -864,21 +1121,19 @@ impl PennaFrontendWindow {
         imp.editor_view.set_cursor_visible(!viewer_mode);
         imp.editor_view.set_can_focus(true);
         imp.editor_view.set_can_target(!viewer_mode);
-        imp.editor_view.set_cursor_from_name(if viewer_mode {
-            Some("default")
-        } else {
-            None
-        });
+        imp.editor_view
+            .set_cursor_from_name(if viewer_mode { Some("default") } else { None });
         imp.viewer_mode_button.set_icon_name(if viewer_mode {
             "view-conceal-symbolic"
         } else {
             "view-reveal-symbolic"
         });
-        imp.viewer_mode_button.set_tooltip_text(Some(if viewer_mode {
-            "Turn off viewer mode"
-        } else {
-            "Turn on viewer mode"
-        }));
+        imp.viewer_mode_button
+            .set_tooltip_text(Some(if viewer_mode {
+                "Turn off viewer mode"
+            } else {
+                "Turn on viewer mode"
+            }));
     }
 
     fn wrap_selection(&self, prefix: &str, suffix: &str) {
@@ -908,12 +1163,14 @@ impl PennaFrontendWindow {
         let mut insert_iter = buffer.iter_at_offset(start_offset);
         buffer.insert(&mut insert_iter, &wrapped_text);
 
-        let cursor_offset = start_offset + prefix_char_count + selected_char_count + suffix_char_count;
+        let cursor_offset =
+            start_offset + prefix_char_count + selected_char_count + suffix_char_count;
         let cursor_iter = buffer.iter_at_offset(cursor_offset);
         buffer.place_cursor(&cursor_iter);
 
         let mut scroll_iter = cursor_iter;
-        imp.editor_view.scroll_to_iter(&mut scroll_iter, 0.1, false, 0.0, 0.0);
+        imp.editor_view
+            .scroll_to_iter(&mut scroll_iter, 0.1, false, 0.0, 0.0);
     }
 
     fn wrap_link_selection(&self) {
@@ -959,19 +1216,20 @@ impl PennaFrontendWindow {
         }
 
         let buffer = imp.editor_view.buffer();
-        let (start_offset, end_offset, has_selection) = if let Some((mut start, mut end)) = buffer.selection_bounds() {
-            if start.offset() > end.offset() {
-                std::mem::swap(&mut start, &mut end);
-            }
-            (start.offset(), end.offset(), true)
-        } else {
-            let insert = buffer.iter_at_mark(&buffer.get_insert());
-            let mut line_start = insert;
-            line_start.set_line_offset(0);
-            let mut line_end = line_start;
-            line_end.forward_to_line_end();
-            (line_start.offset(), line_end.offset(), false)
-        };
+        let (start_offset, end_offset, has_selection) =
+            if let Some((mut start, mut end)) = buffer.selection_bounds() {
+                if start.offset() > end.offset() {
+                    std::mem::swap(&mut start, &mut end);
+                }
+                (start.offset(), end.offset(), true)
+            } else {
+                let insert = buffer.iter_at_mark(&buffer.get_insert());
+                let mut line_start = insert;
+                line_start.set_line_offset(0);
+                let mut line_end = line_start;
+                line_end.forward_to_line_end();
+                (line_start.offset(), line_end.offset(), false)
+            };
 
         let mut start_iter = buffer.iter_at_offset(start_offset);
         start_iter.set_line_offset(0);
@@ -1021,19 +1279,28 @@ impl PennaFrontendWindow {
         }
 
         let buffer = imp.editor_view.buffer();
-        let (start_offset, end_offset, selected_text) = if let Some((mut start, mut end)) = buffer.selection_bounds() {
-            if start.offset() > end.offset() {
-                std::mem::swap(&mut start, &mut end);
-            }
-            (start.offset(), end.offset(), buffer.text(&start, &end, true).to_string())
-        } else {
-            let insert = buffer.iter_at_mark(&buffer.get_insert());
-            let mut line_start = insert;
-            line_start.set_line_offset(0);
-            let mut line_end = line_start;
-            line_end.forward_to_line_end();
-            (line_start.offset(), line_end.offset(), buffer.text(&line_start, &line_end, true).to_string())
-        };
+        let (start_offset, end_offset, selected_text) =
+            if let Some((mut start, mut end)) = buffer.selection_bounds() {
+                if start.offset() > end.offset() {
+                    std::mem::swap(&mut start, &mut end);
+                }
+                (
+                    start.offset(),
+                    end.offset(),
+                    buffer.text(&start, &end, true).to_string(),
+                )
+            } else {
+                let insert = buffer.iter_at_mark(&buffer.get_insert());
+                let mut line_start = insert;
+                line_start.set_line_offset(0);
+                let mut line_end = line_start;
+                line_end.forward_to_line_end();
+                (
+                    line_start.offset(),
+                    line_end.offset(),
+                    buffer.text(&line_start, &line_end, true).to_string(),
+                )
+            };
 
         let wrapped_text = if selected_text.is_empty() {
             "```\n\n```".to_string()
@@ -1281,107 +1548,143 @@ impl PennaFrontendWindow {
         let table = buffer.tag_table();
 
         let add_tag = |tag: &gtk::TextTag| {
-            if table.lookup(tag.name().as_deref().unwrap_or_default()).is_none() {
+            if table
+                .lookup(tag.name().as_deref().unwrap_or_default())
+                .is_none()
+            {
                 table.add(tag);
             }
         };
 
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_HEADING_1)
-            .weight(700)
-            .scale(1.8)
-            .line_height(1.8)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_HEADING_2)
-            .weight(700)
-            .scale(1.5)
-            .line_height(1.6)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_HEADING_3)
-            .weight(700)
-            .scale(1.25)
-            .line_height(1.4)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_HEADING_4)
-            .weight(700)
-            .scale(1.1)
-            .line_height(1.4)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_BLOCKQUOTE)
-            .style(pango::Style::Italic)
-            .left_margin(18)
-            .line_height(1.2)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_CODE)
-            .family("monospace")
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_CODE_BLOCK)
-            .family("monospace")
-            .left_margin(18)
-            .right_margin(18)
-            .line_height(1.2)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_BOLD)
-            .weight(700)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_ITALIC)
-            .style(pango::Style::Italic)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_STRIKETHROUGH)
-            .strikethrough(true)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_SYNTAX)
-            .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
-            .scale(0.01)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_LIST_MARKER)
-            .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
-            .weight(500)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_LIST_ITEM)
-            .left_margin(18)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_LINK)
-            .underline(pango::Underline::Single)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_CHECKED)
-            .strikethrough(true)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_RULE)
-            .scale(0.85)
-            .weight(700)
-            .justification(gtk::Justification::Center)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_CONFLICT_CURRENT)
-            .background_rgba(&gdk::RGBA::new(0.30, 0.69, 0.31, 0.16))
-            .background_full_height(true)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_CONFLICT_INCOMING)
-            .background_rgba(&gdk::RGBA::new(0.16, 0.50, 0.85, 0.16))
-            .background_full_height(true)
-            .build());
-        add_tag(&gtk::TextTag::builder()
-            .name(TAG_CONFLICT_MARKER)
-            .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
-            .style(pango::Style::Italic)
-            .build());
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_HEADING_1)
+                .weight(700)
+                .scale(1.8)
+                .line_height(1.8)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_HEADING_2)
+                .weight(700)
+                .scale(1.5)
+                .line_height(1.6)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_HEADING_3)
+                .weight(700)
+                .scale(1.25)
+                .line_height(1.4)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_HEADING_4)
+                .weight(700)
+                .scale(1.1)
+                .line_height(1.4)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_BLOCKQUOTE)
+                .style(pango::Style::Italic)
+                .left_margin(18)
+                .line_height(1.2)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_CODE)
+                .family("monospace")
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_CODE_BLOCK)
+                .family("monospace")
+                .left_margin(18)
+                .right_margin(18)
+                .line_height(1.2)
+                .build(),
+        );
+        add_tag(&gtk::TextTag::builder().name(TAG_BOLD).weight(700).build());
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_ITALIC)
+                .style(pango::Style::Italic)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_STRIKETHROUGH)
+                .strikethrough(true)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_SYNTAX)
+                .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
+                .scale(0.01)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_LIST_MARKER)
+                .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
+                .weight(500)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_LIST_ITEM)
+                .left_margin(18)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_LINK)
+                .underline(pango::Underline::Single)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_CHECKED)
+                .strikethrough(true)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_RULE)
+                .scale(0.85)
+                .weight(700)
+                .justification(gtk::Justification::Center)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_CONFLICT_CURRENT)
+                .background_rgba(&gdk::RGBA::new(0.30, 0.69, 0.31, 0.16))
+                .background_full_height(true)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_CONFLICT_INCOMING)
+                .background_rgba(&gdk::RGBA::new(0.16, 0.50, 0.85, 0.16))
+                .background_full_height(true)
+                .build(),
+        );
+        add_tag(
+            &gtk::TextTag::builder()
+                .name(TAG_CONFLICT_MARKER)
+                .foreground_rgba(&gdk::RGBA::new(0.45, 0.45, 0.45, 1.0))
+                .style(pango::Style::Italic)
+                .build(),
+        );
     }
 
     fn adjust_editor_zoom(&self, delta: i32) {
@@ -1420,7 +1723,7 @@ impl PennaFrontendWindow {
         }
 
         let connect_result = {
-            let mut engine = imp.engine.borrow_mut();
+            let mut engine = imp.engine.lock().unwrap();
             engine.connect_journal(&repo_path)
         };
 
@@ -1471,7 +1774,7 @@ impl PennaFrontendWindow {
         };
 
         let outcome = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.sync_journal(handle)
         };
 
@@ -1513,7 +1816,8 @@ impl PennaFrontendWindow {
 
         let merge_pending = imp
             .engine
-            .borrow()
+            .lock()
+            .unwrap()
             .journal_status(handle)
             .is_some_and(|status| status.merge_in_progress);
 
@@ -1521,7 +1825,7 @@ impl PennaFrontendWindow {
             return;
         }
 
-        let outcome = imp.engine.borrow().sync_journal(handle);
+        let outcome = imp.engine.lock().unwrap().sync_journal(handle);
         match outcome {
             Ok(outcome) if outcome.conflicted_entry_ids.is_empty() => {
                 self.handle_sync_outcome(&outcome);
@@ -1530,7 +1834,9 @@ impl PennaFrontendWindow {
                 imp.toast_overlay.add_toast(toast);
             }
             Ok(_) => {}
-            Err(err) => imp.sync_status_label.set_label(&format!("Sync failed: {err}")),
+            Err(err) => imp
+                .sync_status_label
+                .set_label(&format!("Sync failed: {err}")),
         }
     }
 
@@ -1547,14 +1853,14 @@ impl PennaFrontendWindow {
         }
 
         let entries = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.list_entries(handle)
         };
 
         // Notes still conflicted mid-merge get a warning badge so unresolved
         // sync state is visible without opening each note.
         let conflicted_ids = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.conflicted_entry_ids(handle)
         };
 
@@ -1562,7 +1868,7 @@ impl PennaFrontendWindow {
 
         for entry in &entries {
             let content = {
-                let engine = imp.engine.borrow();
+                let engine = imp.engine.lock().unwrap();
                 engine
                     .get_entry(handle, &entry.entry_id)
                     .map(|item| item.content)
@@ -1658,11 +1964,7 @@ impl PennaFrontendWindow {
             .grid_selected_entry_id
             .borrow()
             .as_deref()
-            .is_some_and(|id| {
-                buttons
-                    .iter()
-                    .any(|button| button.widget_name() == id)
-            });
+            .is_some_and(|id| buttons.iter().any(|button| button.widget_name() == id));
         if !selected_still_visible {
             *imp.grid_selected_entry_id.borrow_mut() =
                 buttons.first().map(|b| b.widget_name().to_string());
@@ -1675,7 +1977,7 @@ impl PennaFrontendWindow {
             }
         }
 
-        if let Some(status) = imp.engine.borrow().journal_status(handle) {
+        if let Some(status) = imp.engine.lock().unwrap().journal_status(handle) {
             let mut details = format!(
                 "Branch: {} | head: {} | dirty: {} | entries: {}",
                 status.branch, status.head_commit, status.dirty, status.entry_count
@@ -1729,18 +2031,14 @@ impl PennaFrontendWindow {
     /// persistent highlight. Selection is independent of GTK keyboard-focus
     /// visibility, so it is visible before any arrow key is pressed.
     fn select_note(&self, entry_id: Option<&str>) {
-        *self
-            .imp()
-            .grid_selected_entry_id
-            .borrow_mut() = entry_id.map(str::to_string);
+        *self.imp().grid_selected_entry_id.borrow_mut() = entry_id.map(str::to_string);
         self.refresh_grid_selection();
     }
 
     fn refresh_grid_selection(&self) {
         let selected = self.imp().grid_selected_entry_id.borrow().clone();
         for button in self.note_buttons() {
-            let is_selected =
-                selected.as_deref() == Some(button.widget_name().as_str());
+            let is_selected = selected.as_deref() == Some(button.widget_name().as_str());
             if is_selected {
                 button.add_css_class("note-current");
             } else {
@@ -1779,16 +2077,10 @@ impl PennaFrontendWindow {
             return false;
         }
 
-        let selected_id = self
-            .imp()
-            .grid_selected_entry_id
-            .borrow()
-            .clone();
+        let selected_id = self.imp().grid_selected_entry_id.borrow().clone();
         let current = buttons
             .iter()
-            .position(|button| {
-                selected_id.as_deref() == Some(button.widget_name().as_str())
-            })
+            .position(|button| selected_id.as_deref() == Some(button.widget_name().as_str()))
             .unwrap_or(0);
         let cols = self.notes_grid_column_count(buttons.len(), &buttons);
         let rows = buttons.len().div_ceil(cols);
@@ -1855,7 +2147,8 @@ impl PennaFrontendWindow {
         text.push(ch);
         imp.notes_search_revealer.set_reveal_child(true);
         imp.notes_search_entry.set_text(&text);
-        imp.notes_search_entry.set_position(text.chars().count() as i32);
+        imp.notes_search_entry
+            .set_position(text.chars().count() as i32);
         imp.notes_search_entry.grab_focus();
     }
 
@@ -1893,16 +2186,17 @@ impl PennaFrontendWindow {
         let source_id = glib::timeout_add_local(
             Duration::from_millis(16),
             glib::clone!(
-            #[weak(rename_to = window)]
-            self,
-            #[upgrade_or]
-            glib::ControlFlow::Break,
-            move || {
-                window.imp().cursor_follow_source.borrow_mut().take();
-                window.follow_editor_cursor_now();
-                glib::ControlFlow::Break
-            }
-        ));
+                #[weak(rename_to = window)]
+                self,
+                #[upgrade_or]
+                glib::ControlFlow::Break,
+                move || {
+                    window.imp().cursor_follow_source.borrow_mut().take();
+                    window.follow_editor_cursor_now();
+                    glib::ControlFlow::Break
+                }
+            ),
+        );
 
         *imp.cursor_follow_source.borrow_mut() = Some(source_id);
 
@@ -1910,16 +2204,17 @@ impl PennaFrontendWindow {
             let late_source = glib::timeout_add_local(
                 Duration::from_millis(64),
                 glib::clone!(
-                #[weak(rename_to = window)]
-                self,
-                #[upgrade_or]
-                glib::ControlFlow::Break,
-                move || {
-                    window.imp().cursor_follow_late_source.borrow_mut().take();
-                    window.follow_editor_cursor_now();
-                    glib::ControlFlow::Break
-                }
-            ));
+                    #[weak(rename_to = window)]
+                    self,
+                    #[upgrade_or]
+                    glib::ControlFlow::Break,
+                    move || {
+                        window.imp().cursor_follow_late_source.borrow_mut().take();
+                        window.follow_editor_cursor_now();
+                        glib::ControlFlow::Break
+                    }
+                ),
+            );
 
             *imp.cursor_follow_late_source.borrow_mut() = Some(late_source);
         }
@@ -1932,7 +2227,7 @@ impl PennaFrontendWindow {
         };
 
         let content = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.get_entry(handle, entry_id)
         };
 
@@ -1944,6 +2239,9 @@ impl PennaFrontendWindow {
         *imp.current_entry_tags.borrow_mut() = entry.tags.clone();
         self.update_window_title(Some(entry_id));
         imp.editor_view.buffer().set_text(&entry.content);
+        // Loading content fires the change handler above; the freshly loaded
+        // note is by definition saved.
+        self.set_entry_modified(false);
         self.apply_editor_mode();
         self.apply_markdown_styling();
         self.show_editor_view();
@@ -1980,14 +2278,14 @@ impl PennaFrontendWindow {
         let tags = imp.current_entry_tags.borrow().clone();
 
         let save_result = {
-            let mut engine = imp.engine.borrow_mut();
+            let mut engine = imp.engine.lock().unwrap();
             engine.entry_save(handle, &entry_id, &content, &tags)
         };
 
         match save_result {
             Ok(()) => {
-                imp.sync_status_label
-                    .set_label("Saved via entry_save API");
+                self.set_entry_modified(false);
+                imp.sync_status_label.set_label("Saved via entry_save API");
                 self.refresh_notes_grid();
                 self.show_editor_view();
                 self.maybe_conclude_merge();
@@ -2004,8 +2302,23 @@ impl PennaFrontendWindow {
             return;
         };
 
+        // One note per day: if today already has an entry, redirect to it
+        // instead of creating a duplicate.
+        let today = chrono::Local::now().format("%Y%m%d").to_string();
+        let existing = {
+            let engine = imp.engine.lock().unwrap();
+            Self::entry_id_for_day(&engine.list_entries(handle), &today)
+        };
+
+        if let Some(existing) = existing {
+            let toast = adw::Toast::new("Opened today's note");
+            imp.toast_overlay.add_toast(toast);
+            self.open_entry(&existing);
+            return;
+        }
+
         let record = {
-            let mut engine = imp.engine.borrow_mut();
+            let mut engine = imp.engine.lock().unwrap();
             match engine.create_entry_new(handle) {
                 Ok(record) => record,
                 Err(err) => {
@@ -2019,6 +2332,7 @@ impl PennaFrontendWindow {
         *imp.current_entry_tags.borrow_mut() = record.tags.clone();
         self.update_window_title(Some(&record.entry_id));
         imp.editor_view.buffer().set_text(&record.content);
+        self.set_entry_modified(false);
         self.apply_editor_mode();
         self.apply_markdown_styling();
         self.show_editor_view();
@@ -2046,7 +2360,7 @@ impl PennaFrontendWindow {
         };
 
         let snapshot = {
-            let mut engine = imp.engine.borrow_mut();
+            let mut engine = imp.engine.lock().unwrap();
             match engine.delete_entry_with_snapshot(handle, &entry_id) {
                 Ok(snapshot) => snapshot,
                 Err(err) => {
@@ -2058,6 +2372,7 @@ impl PennaFrontendWindow {
 
         *imp.current_entry_id.borrow_mut() = None;
         imp.current_entry_tags.borrow_mut().clear();
+        self.set_entry_modified(false);
         self.show_grid_view();
         self.refresh_notes_grid();
         self.show_delete_undo_toast(snapshot);
@@ -2080,8 +2395,10 @@ impl PennaFrontendWindow {
         toast.connect_button_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
-            #[strong] snapshot,
-            #[strong] generation,
+            #[strong]
+            snapshot,
+            #[strong]
+            generation,
             move |toast| {
                 let window_imp = window.imp();
                 if *window_imp.last_undo_generation.borrow() != generation {
@@ -2096,7 +2413,7 @@ impl PennaFrontendWindow {
                 };
 
                 let result = {
-                    let mut engine = window_imp.engine.borrow_mut();
+                    let mut engine = window_imp.engine.lock().unwrap();
                     engine.restore_entry(handle, &snapshot)
                 };
 
@@ -2124,21 +2441,25 @@ impl PennaFrontendWindow {
             .modal(true)
             .build();
 
-        dialog.select_folder(Some(self), None::<&gio::Cancellable>, glib::clone!(
-            #[weak(rename_to = window)]
-            self,
-            move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        let path_str = path.to_string_lossy().to_string();
-                        let imp = window.imp();
-                        imp.repo_path_entry.set_text(&path_str);
-                        imp.setup_status_label
-                            .set_label("Repository selected. Click Connect.");
+        dialog.select_folder(
+            Some(self),
+            None::<&gio::Cancellable>,
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            let path_str = path.to_string_lossy().to_string();
+                            let imp = window.imp();
+                            imp.repo_path_entry.set_text(&path_str);
+                            imp.setup_status_label
+                                .set_label("Repository selected. Click Connect.");
+                        }
                     }
                 }
-            }
-        ));
+            ),
+        );
     }
 
     fn start_repo_watchers(&self) {
@@ -2150,7 +2471,7 @@ impl PennaFrontendWindow {
         };
 
         let initial_fingerprint = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.entries_fingerprint(handle).ok()
         };
         *imp.last_entries_fingerprint.borrow_mut() = initial_fingerprint;
@@ -2166,7 +2487,7 @@ impl PennaFrontendWindow {
         };
 
         let watch_path = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.entries_directory(handle)
         };
 
@@ -2175,14 +2496,15 @@ impl PennaFrontendWindow {
         };
 
         let file = gio::File::for_path(watch_path);
-        let monitor = match file.monitor_directory(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>) {
-            Ok(monitor) => monitor,
-            Err(err) => {
-                imp.sync_status_label
-                    .set_label(&format!("Unable to monitor repository files: {err}"));
-                return;
-            }
-        };
+        let monitor =
+            match file.monitor_directory(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>) {
+                Ok(monitor) => monitor,
+                Err(err) => {
+                    imp.sync_status_label
+                        .set_label(&format!("Unable to monitor repository files: {err}"));
+                    return;
+                }
+            };
 
         monitor.connect_changed(glib::clone!(
             #[weak(rename_to = window)]
@@ -2254,7 +2576,7 @@ impl PennaFrontendWindow {
         };
 
         let fingerprint = {
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.entries_fingerprint(handle)
         };
 
@@ -2279,7 +2601,7 @@ impl PennaFrontendWindow {
         };
 
         let reload_result = {
-            let mut engine = imp.engine.borrow_mut();
+            let mut engine = imp.engine.lock().unwrap();
             engine.reload_entries(handle)
         };
 
@@ -2288,7 +2610,7 @@ impl PennaFrontendWindow {
                 self.refresh_notes_grid();
 
                 let new_fingerprint = {
-                    let engine = imp.engine.borrow();
+                    let engine = imp.engine.lock().unwrap();
                     engine.entries_fingerprint(handle).ok()
                 };
                 *imp.last_entries_fingerprint.borrow_mut() = new_fingerprint;
@@ -2301,6 +2623,16 @@ impl PennaFrontendWindow {
                     .set_label(&format!("Unable to reload entries from disk: {err}"));
             }
         }
+    }
+
+    /// Entry IDs start with an 8-digit `YYYYMMDD` day prefix. Returns the
+    /// latest entry (highest id) belonging to that day, if any.
+    fn entry_id_for_day(entries: &[EntrySummary], day_prefix: &str) -> Option<String> {
+        entries
+            .iter()
+            .filter(|entry| entry.entry_id.starts_with(day_prefix))
+            .map(|entry| entry.entry_id.clone())
+            .max()
     }
 
     fn format_entry_date(entry_id: &str) -> String {
@@ -2340,7 +2672,9 @@ impl PennaFrontendWindow {
 
     fn effective_entry_datetime_format() -> String {
         let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let raw = settings.string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY).to_string();
+        let raw = settings
+            .string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY)
+            .to_string();
         let candidate = if raw.trim().is_empty() {
             ENTRY_DATETIME_FORMAT_DEFAULT
         } else {
@@ -2359,13 +2693,31 @@ impl PennaFrontendWindow {
     }
 
     fn update_window_title(&self, entry_id: Option<&str>) {
-        let title = entry_id
+        let imp = self.imp();
+        let base = entry_id
             .map(Self::format_entry_date)
             .filter(|text| !text.is_empty())
             .map(|text| text.to_string())
             .unwrap_or_else(|| WINDOW_TITLE_BASE.to_string());
 
+        // GNOME HIG dirty-document indicator: a bullet before the title while
+        // the open note has unsaved edits.
+        let title = if *imp.modified.borrow() {
+            format!("• {base}")
+        } else {
+            base
+        };
+
         self.set_title(Some(&title));
+    }
+
+    fn set_entry_modified(&self, modified: bool) {
+        let imp = self.imp();
+        if *imp.modified.borrow() == modified {
+            return;
+        }
+        *imp.modified.borrow_mut() = modified;
+        self.update_window_title(imp.current_entry_id.borrow().as_deref());
     }
 
     fn visible_tags_for_row(tags: &[String]) -> Vec<&str> {
@@ -2374,7 +2726,11 @@ impl PennaFrontendWindow {
 
         for tag in tags {
             let tag_chars = tag.chars().count();
-            let next_cost = if visible.is_empty() { tag_chars } else { tag_chars + 1 };
+            let next_cost = if visible.is_empty() {
+                tag_chars
+            } else {
+                tag_chars + 1
+            };
 
             if !visible.is_empty() && used_chars + next_cost > NOTE_ROW_TAGS_MAX_CHARS {
                 break;
@@ -2392,7 +2748,8 @@ impl PennaFrontendWindow {
     }
 
     fn hidden_tag_count_for_row(tags: &[String]) -> usize {
-        tags.len().saturating_sub(Self::visible_tags_for_row(tags).len())
+        tags.len()
+            .saturating_sub(Self::visible_tags_for_row(tags).len())
     }
 
     fn build_tag_chip(tag: &str) -> gtk::Box {
@@ -2480,7 +2837,7 @@ impl PennaFrontendWindow {
         content.append(&pages);
 
         let available_tags = Rc::new(RefCell::new({
-            let engine = imp.engine.borrow();
+            let engine = imp.engine.lock().unwrap();
             engine.list_tags(handle)
         }));
         let current_tags = Rc::new(RefCell::new(imp.current_entry_tags.borrow().clone()));
@@ -2517,7 +2874,7 @@ impl PennaFrontendWindow {
                 entry_id,
                 move |tag: &str, attach: bool| {
                     let result = {
-                        let mut engine = window.imp().engine.borrow_mut();
+                        let mut engine = window.imp().engine.lock().unwrap();
                         if attach {
                             engine.add_tag(handle, &entry_id, tag)
                         } else {
@@ -2570,12 +2927,16 @@ impl PennaFrontendWindow {
                     }
 
                     let result = {
-                        let mut engine = window.imp().engine.borrow_mut();
+                        let mut engine = window.imp().engine.lock().unwrap();
                         engine.add_tag(handle, &entry_id, &tag)
                     };
 
                     if let Ok(tags) = result {
-                        if !available_tags.borrow().iter().any(|existing| existing == &tag) {
+                        if !available_tags
+                            .borrow()
+                            .iter()
+                            .any(|existing| existing == &tag)
+                        {
                             available_tags.borrow_mut().push(tag.clone());
                             available_tags.borrow_mut().sort_unstable();
                         }
@@ -2618,123 +2979,118 @@ impl PennaFrontendWindow {
             let current_tags = current_tags.clone();
             let apply_tag = apply_tag.clone();
             Rc::new(move || {
-                    // Remember the focused row across the rebuild so keyboard
-                    // navigation is not thrown back to the top on every filter
-                    // keystroke.
-                    let mut focused_tag: Option<String> = None;
-                    let mut iter = list_box.first_child();
-                    while let Some(child) = iter {
-                        iter = child.next_sibling();
-                        if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
-                            if row.has_focus() {
-                                focused_tag = Some(row.widget_name().to_string());
-                            }
-                        }
-                    }
-
-                    while let Some(child) = list_box.first_child() {
-                        list_box.remove(&child);
-                    }
-
-                    let query = search_entry.text().trim().to_string();
-                    let lower_query = query.to_lowercase();
-
-                    let mut tags = available_tags.borrow().clone();
-                    tags.sort_unstable();
-
-                    if !query.is_empty()
-                        && !tags.iter().any(|t| t.to_lowercase() == lower_query)
-                    {
-                        let row = gtk::ListBoxRow::new();
-                        row.set_widget_name(ADD_ROW_NAME);
-                        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-                        row_box.set_margin_top(8);
-                        row_box.set_margin_bottom(8);
-                        row_box.set_margin_start(12);
-                        row_box.set_margin_end(12);
-
-                        let icon = gtk::Image::from_icon_name("list-add-symbolic");
-                        let label = gtk::Label::new(None);
-                        label.set_markup(&format!(
-                            "Add tag \u{201C}<b>{}</b>\u{201D}",
-                            glib::markup_escape_text(&query)
-                        ));
-                        label.set_halign(gtk::Align::Start);
-
-                        row_box.append(&icon);
-                        row_box.append(&label);
-                        row.set_child(Some(&row_box));
-                        list_box.append(&row);
-                    }
-
-                    for tag in &tags {
-                        if !lower_query.is_empty() && !tag.to_lowercase().contains(&lower_query)
-                        {
-                            continue;
-                        }
-
-                        let attached =
-                            current_tags.borrow().iter().any(|current| current == tag);
-
-                        let row = gtk::ListBoxRow::new();
-                        row.set_widget_name(tag.as_str());
-                        let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-                        row_box.set_margin_top(8);
-                        row_box.set_margin_bottom(8);
-                        row_box.set_margin_start(12);
-                        row_box.set_margin_end(12);
-
-                        let label = gtk::Label::new(Some(tag));
-                        label.set_hexpand(true);
-                        label.set_halign(gtk::Align::Start);
-                        label.set_xalign(0.0);
-                        label.set_ellipsize(pango::EllipsizeMode::End);
-
-                        let toggle = gtk::CheckButton::new();
-                        toggle.set_active(attached);
-                        toggle.connect_toggled(glib::clone!(
-                            #[strong]
-                            current_tags,
-                            #[strong]
-                            apply_tag,
-                            #[strong]
-                            tag,
-                            move |button| {
-                                let attached_now = current_tags.borrow().contains(&tag);
-                                if attached_now == button.is_active() {
-                                    return; // programmatic echo, not a user action
-                                }
-                                apply_tag(&tag, button.is_active());
-                            }
-                        ));
-
-                        row_box.append(&label);
-                        row_box.append(&toggle);
-                        row.set_child(Some(&row_box));
-                        list_box.append(&row);
-                    }
-
-                    let no_tags_at_all = tags.is_empty();
-                    pages.set_visible_child_name(if no_tags_at_all && query.is_empty() {
-                        "empty"
-                    } else {
-                        "list"
-                    });
-
-                    if let Some(name) = focused_tag {
-                        let mut iter = list_box.first_child();
-                        while let Some(child) = iter {
-                            iter = child.next_sibling();
-                            if child.widget_name() == name {
-                                if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
-                                    row.grab_focus();
-                                }
-                                break;
-                            }
+                // Remember the focused row across the rebuild so keyboard
+                // navigation is not thrown back to the top on every filter
+                // keystroke.
+                let mut focused_tag: Option<String> = None;
+                let mut iter = list_box.first_child();
+                while let Some(child) = iter {
+                    iter = child.next_sibling();
+                    if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
+                        if row.has_focus() {
+                            focused_tag = Some(row.widget_name().to_string());
                         }
                     }
                 }
-            )
+
+                while let Some(child) = list_box.first_child() {
+                    list_box.remove(&child);
+                }
+
+                let query = search_entry.text().trim().to_string();
+                let lower_query = query.to_lowercase();
+
+                let mut tags = available_tags.borrow().clone();
+                tags.sort_unstable();
+
+                if !query.is_empty() && !tags.iter().any(|t| t.to_lowercase() == lower_query) {
+                    let row = gtk::ListBoxRow::new();
+                    row.set_widget_name(ADD_ROW_NAME);
+                    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                    row_box.set_margin_top(8);
+                    row_box.set_margin_bottom(8);
+                    row_box.set_margin_start(12);
+                    row_box.set_margin_end(12);
+
+                    let icon = gtk::Image::from_icon_name("list-add-symbolic");
+                    let label = gtk::Label::new(None);
+                    label.set_markup(&format!(
+                        "Add tag \u{201C}<b>{}</b>\u{201D}",
+                        glib::markup_escape_text(&query)
+                    ));
+                    label.set_halign(gtk::Align::Start);
+
+                    row_box.append(&icon);
+                    row_box.append(&label);
+                    row.set_child(Some(&row_box));
+                    list_box.append(&row);
+                }
+
+                for tag in &tags {
+                    if !lower_query.is_empty() && !tag.to_lowercase().contains(&lower_query) {
+                        continue;
+                    }
+
+                    let attached = current_tags.borrow().iter().any(|current| current == tag);
+
+                    let row = gtk::ListBoxRow::new();
+                    row.set_widget_name(tag.as_str());
+                    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+                    row_box.set_margin_top(8);
+                    row_box.set_margin_bottom(8);
+                    row_box.set_margin_start(12);
+                    row_box.set_margin_end(12);
+
+                    let label = gtk::Label::new(Some(tag));
+                    label.set_hexpand(true);
+                    label.set_halign(gtk::Align::Start);
+                    label.set_xalign(0.0);
+                    label.set_ellipsize(pango::EllipsizeMode::End);
+
+                    let toggle = gtk::CheckButton::new();
+                    toggle.set_active(attached);
+                    toggle.connect_toggled(glib::clone!(
+                        #[strong]
+                        current_tags,
+                        #[strong]
+                        apply_tag,
+                        #[strong]
+                        tag,
+                        move |button| {
+                            let attached_now = current_tags.borrow().contains(&tag);
+                            if attached_now == button.is_active() {
+                                return; // programmatic echo, not a user action
+                            }
+                            apply_tag(&tag, button.is_active());
+                        }
+                    ));
+
+                    row_box.append(&label);
+                    row_box.append(&toggle);
+                    row.set_child(Some(&row_box));
+                    list_box.append(&row);
+                }
+
+                let no_tags_at_all = tags.is_empty();
+                pages.set_visible_child_name(if no_tags_at_all && query.is_empty() {
+                    "empty"
+                } else {
+                    "list"
+                });
+
+                if let Some(name) = focused_tag {
+                    let mut iter = list_box.first_child();
+                    while let Some(child) = iter {
+                        iter = child.next_sibling();
+                        if child.widget_name() == name {
+                            if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
+                                row.grab_focus();
+                            }
+                            break;
+                        }
+                    }
+                }
+            })
         };
 
         // Click and Enter-on-row both arrive here; Space is routed manually
@@ -2772,7 +3128,10 @@ impl PennaFrontendWindow {
                     return glib::Propagation::Stop;
                 }
 
-                if matches!(keyval, gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter) {
+                if matches!(
+                    keyval,
+                    gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::ISO_Enter
+                ) {
                     let query = search_entry.text().trim().to_string();
                     if query.is_empty() {
                         return glib::Propagation::Proceed;
@@ -2790,9 +3149,7 @@ impl PennaFrontendWindow {
                             while let Some(child) = iter {
                                 iter = child.next_sibling();
                                 if child.widget_name() == tag {
-                                    if let Some(row) =
-                                        child.downcast_ref::<gtk::ListBoxRow>()
-                                    {
+                                    if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
                                         activate_row(row);
                                     }
                                     break;
@@ -2818,9 +3175,7 @@ impl PennaFrontendWindow {
             activate_row,
             move |_, keyval, _, _| {
                 if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space) {
-                    if let Some(row) =
-                        list_box.focus_child().and_downcast::<gtk::ListBoxRow>()
-                    {
+                    if let Some(row) = list_box.focus_child().and_downcast::<gtk::ListBoxRow>() {
                         activate_row(&row);
                         return glib::Propagation::Stop;
                     }
@@ -2872,14 +3227,24 @@ impl PennaFrontendWindow {
 
             if line_trimmed.starts_with("```") {
                 in_code_block = !in_code_block;
-                Self::apply_tag_by_offset(&buffer, TAG_CODE_BLOCK, line_start_offset, line_end_offset);
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_CODE_BLOCK,
+                    line_start_offset,
+                    line_end_offset,
+                );
                 Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_end_offset);
                 line_start_offset = line_end_offset + 1;
                 continue;
             }
 
             if in_code_block {
-                Self::apply_tag_by_offset(&buffer, TAG_CODE_BLOCK, line_start_offset, line_end_offset);
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_CODE_BLOCK,
+                    line_start_offset,
+                    line_end_offset,
+                );
                 line_start_offset = line_end_offset + 1;
                 continue;
             }
@@ -2891,25 +3256,77 @@ impl PennaFrontendWindow {
                     3 => TAG_HEADING_3,
                     _ => TAG_HEADING_4,
                 };
-                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + marker_len);
-                Self::apply_tag_by_offset(&buffer, tag, line_start_offset + marker_len, line_end_offset);
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_SYNTAX,
+                    line_start_offset,
+                    line_start_offset + marker_len,
+                );
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    tag,
+                    line_start_offset + marker_len,
+                    line_end_offset,
+                );
             }
 
             if let Some(content) = line_trimmed.strip_prefix("> ") {
                 let prefix_len = line_trimmed.chars().count() - content.chars().count();
-                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_start_offset + prefix_len);
-                Self::apply_tag_by_offset(&buffer, TAG_BLOCKQUOTE, line_start_offset + prefix_len, line_end_offset);
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_SYNTAX,
+                    line_start_offset,
+                    line_start_offset + prefix_len,
+                );
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_BLOCKQUOTE,
+                    line_start_offset + prefix_len,
+                    line_end_offset,
+                );
             }
 
-            if let Some(marker_len) = Self::parse_checkbox_item(line_trimmed).map(|item| item.marker_len) {
-                Self::apply_tag_by_offset(&buffer, TAG_LIST_MARKER, line_start_offset, line_start_offset + marker_len);
-                Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset + marker_len, line_end_offset);
+            if let Some(marker_len) =
+                Self::parse_checkbox_item(line_trimmed).map(|item| item.marker_len)
+            {
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_LIST_MARKER,
+                    line_start_offset,
+                    line_start_offset + marker_len,
+                );
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_LIST_ITEM,
+                    line_start_offset + marker_len,
+                    line_end_offset,
+                );
             } else if let Some(marker_len) = Self::parse_unordered_list_item(line_trimmed) {
-                Self::apply_tag_by_offset(&buffer, TAG_LIST_MARKER, line_start_offset, line_start_offset + marker_len);
-                Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset + marker_len, line_end_offset);
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_LIST_MARKER,
+                    line_start_offset,
+                    line_start_offset + marker_len,
+                );
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_LIST_ITEM,
+                    line_start_offset + marker_len,
+                    line_end_offset,
+                );
             } else if let Some(marker_len) = Self::parse_ordered_list_item(line_trimmed) {
-                Self::apply_tag_by_offset(&buffer, TAG_LIST_ITEM, line_start_offset, line_end_offset);
-                Self::apply_tag_by_offset(&buffer, TAG_LIST_MARKER, line_start_offset, line_start_offset + marker_len);
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_LIST_ITEM,
+                    line_start_offset,
+                    line_end_offset,
+                );
+                Self::apply_tag_by_offset(
+                    &buffer,
+                    TAG_LIST_MARKER,
+                    line_start_offset,
+                    line_start_offset + marker_len,
+                );
             }
 
             if Self::is_horizontal_rule(line_trimmed) {
@@ -2933,7 +3350,10 @@ impl PennaFrontendWindow {
         let mut position = 0usize;
         for line in text.split_inclusive('\n') {
             let width = line.chars().count();
-            line_bounds.push((position, position + width - line.trim_end_matches('\n').chars().count()));
+            line_bounds.push((
+                position,
+                position + width - line.trim_end_matches('\n').chars().count(),
+            ));
             position += width;
         }
 
@@ -3054,14 +3474,17 @@ impl PennaFrontendWindow {
     }
 
     fn parse_checkbox_item(line: &str) -> Option<CheckboxItem> {
-        ["- [ ] ", "* [ ] ", "+ [ ] ", "- [x] ", "* [x] ", "+ [x] ", "- [X] ", "* [X] ", "+ [X] "]
-            .into_iter()
-            .find_map(|prefix| {
-                line.strip_prefix(prefix).map(|_| CheckboxItem {
-                    marker_len: prefix.chars().count(),
-                    checked: matches!(prefix.as_bytes().get(3), Some(b'x' | b'X')),
-                })
+        [
+            "- [ ] ", "* [ ] ", "+ [ ] ", "- [x] ", "* [x] ", "+ [x] ", "- [X] ", "* [X] ",
+            "+ [X] ",
+        ]
+        .into_iter()
+        .find_map(|prefix| {
+            line.strip_prefix(prefix).map(|_| CheckboxItem {
+                marker_len: prefix.chars().count(),
+                checked: matches!(prefix.as_bytes().get(3), Some(b'x' | b'X')),
             })
+        })
     }
 
     fn expand_code_block_from_backticks(&self) -> bool {
@@ -3154,9 +3577,24 @@ impl PennaFrontendWindow {
 
             if line[byte_index..].starts_with("**") {
                 if let Some(start) = bold_start.take() {
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 2);
-                    Self::apply_tag_by_offset(buffer, TAG_BOLD, line_start_offset + start + 2, line_start_offset + char_index);
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 2);
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + start,
+                        line_start_offset + start + 2,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_BOLD,
+                        line_start_offset + start + 2,
+                        line_start_offset + char_index,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + char_index,
+                        line_start_offset + char_index + 2,
+                    );
                 } else {
                     bold_start = Some(char_index);
                 }
@@ -3166,9 +3604,24 @@ impl PennaFrontendWindow {
 
             if ch == '*' {
                 if let Some(start) = italic_start.take() {
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 1);
-                    Self::apply_tag_by_offset(buffer, TAG_ITALIC, line_start_offset + start + 1, line_start_offset + char_index);
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 1);
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + start,
+                        line_start_offset + start + 1,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_ITALIC,
+                        line_start_offset + start + 1,
+                        line_start_offset + char_index,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + char_index,
+                        line_start_offset + char_index + 1,
+                    );
                 } else {
                     italic_start = Some(char_index);
                 }
@@ -3178,9 +3631,24 @@ impl PennaFrontendWindow {
 
             if line[byte_index..].starts_with("~~") {
                 if let Some(start) = strike_start.take() {
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 2);
-                    Self::apply_tag_by_offset(buffer, TAG_STRIKETHROUGH, line_start_offset + start + 2, line_start_offset + char_index);
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 2);
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + start,
+                        line_start_offset + start + 2,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_STRIKETHROUGH,
+                        line_start_offset + start + 2,
+                        line_start_offset + char_index,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + char_index,
+                        line_start_offset + char_index + 2,
+                    );
                 } else {
                     strike_start = Some(char_index);
                 }
@@ -3190,9 +3658,24 @@ impl PennaFrontendWindow {
 
             if ch == '`' {
                 if let Some(start) = code_start.take() {
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + start, line_start_offset + start + 1);
-                    Self::apply_tag_by_offset(buffer, TAG_CODE, line_start_offset + start + 1, line_start_offset + char_index);
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 1);
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + start,
+                        line_start_offset + start + 1,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_CODE,
+                        line_start_offset + start + 1,
+                        line_start_offset + char_index,
+                    );
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + char_index,
+                        line_start_offset + char_index + 1,
+                    );
                 } else {
                     code_start = Some(char_index);
                 }
@@ -3202,7 +3685,12 @@ impl PennaFrontendWindow {
 
             if ch == '[' {
                 if let Some(link) = Self::parse_link_at(&line[byte_index..]) {
-                    Self::apply_tag_by_offset(buffer, TAG_SYNTAX, line_start_offset + char_index, line_start_offset + char_index + 1);
+                    Self::apply_tag_by_offset(
+                        buffer,
+                        TAG_SYNTAX,
+                        line_start_offset + char_index,
+                        line_start_offset + char_index + 1,
+                    );
                     Self::apply_tag_by_offset(
                         buffer,
                         TAG_LINK,
@@ -3225,12 +3713,22 @@ impl PennaFrontendWindow {
 
         if let Some(item) = Self::parse_checkbox_item(line) {
             if item.checked {
-                Self::apply_tag_by_offset(buffer, TAG_CHECKED, line_start_offset + item.marker_len, line_start_offset + line.chars().count());
+                Self::apply_tag_by_offset(
+                    buffer,
+                    TAG_CHECKED,
+                    line_start_offset + item.marker_len,
+                    line_start_offset + line.chars().count(),
+                );
             }
         }
     }
 
-    fn apply_tag_by_offset(buffer: &gtk::TextBuffer, tag_name: &str, start_offset: usize, end_offset: usize) {
+    fn apply_tag_by_offset(
+        buffer: &gtk::TextBuffer,
+        tag_name: &str,
+        start_offset: usize,
+        end_offset: usize,
+    ) {
         if start_offset >= end_offset {
             return;
         }
@@ -3289,6 +3787,7 @@ impl PennaFrontendWindow {
         *imp.in_notes_grid_view.borrow_mut() = false;
         self.set_editor_only_actions_enabled(false);
         imp.current_entry_tags.borrow_mut().clear();
+        self.set_entry_modified(false);
         self.update_window_title(None);
         self.stop_repo_watchers();
         imp.app_stack.set_visible_child(&*imp.setup_page);
@@ -3352,8 +3851,16 @@ fn sync_status_message(outcome: &SyncOutcome) -> String {
         "diverged" => format!(
             "Merge started: {} note{} need{} conflict resolution",
             outcome.conflicted_entry_ids.len(),
-            if outcome.conflicted_entry_ids.len() == 1 { "" } else { "s" },
-            if outcome.conflicted_entry_ids.len() == 1 { "s" } else { "" },
+            if outcome.conflicted_entry_ids.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
+            if outcome.conflicted_entry_ids.len() == 1 {
+                "s"
+            } else {
+                ""
+            },
         ),
         other => format!("Sync state: {other}"),
     }
@@ -3383,7 +3890,10 @@ mod sync_message_tests {
 
     #[test]
     fn messages_for_quiet_statuses() {
-        assert_eq!(sync_status_message(&outcome("up_to_date", &[])), "Journal up to date");
+        assert_eq!(
+            sync_status_message(&outcome("up_to_date", &[])),
+            "Journal up to date"
+        );
         assert_eq!(
             sync_status_message(&outcome("pulled", &[])),
             "Journal updated from remote"
@@ -3431,8 +3941,14 @@ mod sync_message_tests {
 
     #[test]
     fn toast_message_pluralizes() {
-        assert_eq!(sync_conflict_toast_message(1), "1 note needs conflict resolution");
-        assert_eq!(sync_conflict_toast_message(3), "3 notes need conflict resolution");
+        assert_eq!(
+            sync_conflict_toast_message(1),
+            "1 note needs conflict resolution"
+        );
+        assert_eq!(
+            sync_conflict_toast_message(3),
+            "3 notes need conflict resolution"
+        );
     }
 }
 
@@ -3467,7 +3983,8 @@ mod entry_id_tests {
 
     #[test]
     fn round_trip_from_arbitrary_timestamp() {
-        let timestamp = NaiveDateTime::parse_from_str("2017-05-03T07:09", "%Y-%m-%dT%H:%M").unwrap();
+        let timestamp =
+            NaiveDateTime::parse_from_str("2017-05-03T07:09", "%Y-%m-%dT%H:%M").unwrap();
         let id = format_id(timestamp);
         assert_eq!(id, "201705030709.md");
 
@@ -3508,5 +4025,54 @@ mod entry_id_tests {
         assert!(PennaFrontendWindow::parse_entry_timestamp("202613011542.md").is_none());
         assert!(PennaFrontendWindow::parse_entry_timestamp("202601012542.md").is_none());
         assert!(PennaFrontendWindow::parse_entry_timestamp("202402290000.md").is_some());
+    }
+}
+
+#[cfg(test)]
+mod entry_id_for_day_tests {
+    use super::*;
+
+    fn summary(id: &str) -> EntrySummary {
+        EntrySummary {
+            entry_id: id.to_string(),
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn picks_latest_entry_of_the_day() {
+        let entries = vec![
+            summary("202608240900.md"),
+            summary("202608250800.md"),
+            summary("202608251530.md"),
+            summary("202608260001.md"),
+        ];
+        assert_eq!(
+            PennaFrontendWindow::entry_id_for_day(&entries, "20260825"),
+            Some("202608251530.md".to_string())
+        );
+    }
+
+    #[test]
+    fn single_entry_of_the_day() {
+        let entries = vec![summary("202608240900.md"), summary("202608250800.md")];
+        assert_eq!(
+            PennaFrontendWindow::entry_id_for_day(&entries, "20260824"),
+            Some("202608240900.md".to_string())
+        );
+    }
+
+    #[test]
+    fn no_entry_for_day() {
+        let entries = vec![summary("202608240900.md"), summary("202608260001.md")];
+        assert_eq!(
+            PennaFrontendWindow::entry_id_for_day(&entries, "20260825"),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_list() {
+        assert_eq!(PennaFrontendWindow::entry_id_for_day(&[], "20260825"), None);
     }
 }
