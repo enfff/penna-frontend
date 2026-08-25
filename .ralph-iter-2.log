@@ -1,17 +1,11 @@
-Now I'll implement T7. First, checking the exact `adw::Toast::new` signature available in the vendored bindings before writing code:
-Signature confirmed. Now adding the pure counter to `conflict.rs`:
-Now appending the save-guard test module at the end of `conflict.rs`:
-Now wiring the guard into `save_current_entry` in `window.rs`:
-Running the gate command plus the test suite:
-Gate is clean, but let me confirm the new tests are actually running:
-The append edit left stray braces. Inspecting the seam to fix:
-The seam is mangled — restoring correct brace structure:
-All 6 new tests pass. Verifying `conflict.rs` itself is rustfmt-clean (application.rs diff is pre-existing) and running the full gate:
-Gate passes, 65/65 tests green (rustfmt noise is pre-existing repo-wide; gate is clippy-only). Reviewing the final diff for sanity:
-Diff is clean and scoped. Marking T7 done in `PLAN.md` and appending the progress line:
-**T7 complete — Save guard**
+T13's work appears mostly landed (progress log claims completion but `PLAN.md` still shows it open — likely a crash between steps 6 and 5 last iteration). My job: verify T13 fully satisfies its checklist before marking it done.
+POT regenerates byte-identical apart from its creation timestamp — content is current. Now the gate:
+All T13 checklist items verified. Marking it done and logging:
+**T13 verified and closed.** The prior iteration had completed the plural-forms work but `PLAN.md` was left unchecked, so this run re-audited it end-to-end:
 
-- Added `unresolved_conflict_count()` to `src/conflict.rs:326` — counts well-formed conflict blocks (one `Current` segment per block, so back-to-back blocks and empty sides count correctly); 6 new unit tests covering clean prose, malformed lookalikes, single/multiple/back-to-back blocks, empty sides.
-- Guarded `save_current_entry` in `src/window.rs:1860`: Ctrl+S with unresolved conflicts shows a High-priority `"N unresolved conflicts"` toast via the existing `toast_overlay` and refuses to save; a resolved note falls through to `entry_save` untouched.
-- Gate (`cargo clippy --all-targets -- -D warnings`) passes; 65/65 tests green.
-- T7 marked `[x]` in PLAN.md; progress line appended. Next iteration picks up T8 (sync surface).
+- `src/i18n.rs:66` and `:75` use `gettextrs::ngettext`; `sync_conflict_toast_message` (src/window.rs:3876) delegates to the plural-aware helper — all three count-bearing strings covered.
+- `po/penna-frontend.pot` regenerated via `ninja -C build penna-frontend-pot`: content-identical to the tree copy (timestamp-only diff).
+- `po/de.po`, `po/fr.po`, `po/it.po` all carry correct plural entries and Plural-Forms headers; `msgfmt --check --statistics` passes at 59/59 translated each.
+- Gate (`cargo clippy --all-targets -- -D warnings`) green; 78 unit tests pass.
+
+Next iteration starts on T14 (translatable desktop metadata).

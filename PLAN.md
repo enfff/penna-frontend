@@ -5,7 +5,7 @@ only when the gate command passes for that task's work.
 
 ## Active
 
-- [ ] T13: Proper plural forms — replace the `.replace("{}", …)` pattern for
+- [x] T13: Proper plural forms — replace the `.replace("{}", …)` pattern for
       count-bearing strings (`unresolved_conflicts`, `conflicts_pending`,
       `sync_conflict_toast_message`) with `gettextrs::ngettext` so translators
       control plural rules per language. Update `src/i18n.rs`, keep all call
