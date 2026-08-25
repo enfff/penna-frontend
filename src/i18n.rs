@@ -5,7 +5,7 @@
 //! calls nested inside `glib::clone!` macro bodies are skipped by its
 //! lexer. UI code calls these helpers instead of embedding raw strings.
 
-use gettextrs::gettext;
+use gettextrs::{gettext, ngettext};
 
 pub fn diary_title() -> String {
     gettext("Diary")
@@ -64,15 +64,21 @@ pub fn sync_failed(err: &str) -> String {
 }
 
 pub fn unresolved_conflicts(count: usize) -> String {
-    gettext("{} unresolved conflicts").replace("{}", &count.to_string())
-}
-
-pub fn one_conflict_pending() -> String {
-    gettext("1 note needs conflict resolution")
+    ngettext(
+        "{} unresolved conflict",
+        "{} unresolved conflicts",
+        count as u32,
+    )
+    .replace("{}", &count.to_string())
 }
 
 pub fn conflicts_pending(count: usize) -> String {
-    gettext("{} notes need conflict resolution").replace("{}", &count.to_string())
+    ngettext(
+        "{} note needs conflict resolution",
+        "{} notes need conflict resolution",
+        count as u32,
+    )
+    .replace("{}", &count.to_string())
 }
 
 pub fn accept_current_label() -> String {
@@ -89,4 +95,8 @@ pub fn accepted_current_changes() -> String {
 
 pub fn accepted_incoming_changes() -> String {
     gettext("Accepted incoming changes")
+}
+
+pub fn change_repository() -> String {
+    gettext("Change Repository")
 }

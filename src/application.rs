@@ -189,6 +189,22 @@ impl PennaFrontendApplication {
 
         group.add(&mock_row);
 
+        // Repository switch lives here now; it left the main menu.
+        let repo_row = adw::ActionRow::builder()
+            .title(crate::i18n::change_repository())
+            .activatable(true)
+            .build();
+        if let Some(app_window) = app_window.clone() {
+            repo_row.connect_activated(move |_| {
+                gtk::prelude::ActionGroupExt::activate_action(
+                    &app_window,
+                    "change-repo",
+                    None,
+                );
+            });
+        }
+        group.add(&repo_row);
+
         let font_group = adw::PreferencesGroup::builder()
             .title("Editor")
             .build();

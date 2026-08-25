@@ -3874,11 +3874,7 @@ fn sync_status_message(outcome: &SyncOutcome) -> String {
 }
 
 fn sync_conflict_toast_message(count: usize) -> String {
-    if count == 1 {
-        i18n::one_conflict_pending()
-    } else {
-        i18n::conflicts_pending(count)
-    }
+    i18n::conflicts_pending(count)
 }
 
 #[cfg(test)]
