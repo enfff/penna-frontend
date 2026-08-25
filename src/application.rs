@@ -26,13 +26,9 @@ use chrono::Local;
 use std::rc::Rc;
 
 use crate::config::VERSION;
+use crate::settings;
 use crate::PennaFrontendWindow;
 
-const SETTINGS_SCHEMA_ID: &str = "io.github.enfff.Diary";
-const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
-const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
-const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
-const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
 const EDITOR_FONT_SIZE_MIN_PT: f64 = 10.0;
 const EDITOR_FONT_SIZE_MAX_PT: f64 = 28.0;
 const EDITOR_FONT_SIZE_DEFAULT_PT: f64 = 14.0;
@@ -162,13 +158,11 @@ impl PennaFrontendApplication {
 
         let app_window = window.clone().downcast::<PennaFrontendWindow>().ok();
 
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let confetti_active = settings.boolean(SETTINGS_CONFETTI_KEY);
-        let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
-        let custom_font = settings.string(SETTINGS_EDITOR_FONT_CUSTOM_KEY).to_string();
-        let entry_datetime_format = settings
-            .string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY)
-            .to_string();
+        let confetti_active = settings::get_bool(settings::SETTINGS_CONFETTI_KEY);
+        let font_preset = settings::get_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY);
+        let custom_font = settings::get_str(settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY);
+        let entry_datetime_format =
+            settings::get_str(settings::SETTINGS_ENTRY_DATETIME_FORMAT_KEY);
 
         let prefs = adw::PreferencesDialog::new();
 
@@ -184,7 +178,7 @@ impl PennaFrontendApplication {
             .build();
 
         mock_row.connect_active_notify(move |row| {
-            let _ = settings.set_boolean(SETTINGS_CONFETTI_KEY, row.is_active());
+            let _ = settings::set_bool(settings::SETTINGS_CONFETTI_KEY, row.is_active());
         });
 
         group.add(&mock_row);
@@ -358,14 +352,13 @@ impl PennaFrontendApplication {
         font_group.add(&options_box);
         font_size_group.add(&font_size_row);
 
-        let settings_for_sans = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_sans = self.clone();
         sans_radio.connect_toggled(move |radio| {
             if !radio.is_active() {
                 return;
             }
 
-            let _ = settings_for_sans.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "sans");
+            let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY, "sans");
 
             if let Some(window) = app_for_sans.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
@@ -374,14 +367,13 @@ impl PennaFrontendApplication {
             }
         });
 
-        let settings_for_serif = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_serif = self.clone();
         serif_radio.connect_toggled(move |radio| {
             if !radio.is_active() {
                 return;
             }
 
-            let _ = settings_for_serif.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "serif");
+            let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY, "serif");
 
             if let Some(window) = app_for_serif.active_window() {
                 if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
@@ -411,7 +403,6 @@ impl PennaFrontendApplication {
             })
         };
 
-        let settings_for_custom_choice = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_custom_choice = self.clone();
         let open_custom_font_dialog_for_toggle = open_custom_font_dialog.clone();
         custom_radio.connect_toggled(move |radio| {
@@ -419,7 +410,7 @@ impl PennaFrontendApplication {
                 return;
             }
 
-            let _ = settings_for_custom_choice.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
+            let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
             open_custom_font_dialog_for_toggle();
 
             if let Some(window) = app_for_custom_choice.active_window() {
@@ -439,8 +430,6 @@ impl PennaFrontendApplication {
         });
         custom_radio.add_controller(custom_click);
 
-        let settings_for_custom = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let settings_for_custom_preset = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_custom = self.clone();
         let custom_preview_for_family = custom_preview.clone();
         let custom_caption_for_family = custom_caption.clone();
@@ -460,8 +449,8 @@ impl PennaFrontendApplication {
                 family
             };
 
-            let _ = settings_for_custom_preset.set_string(SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
-            let _ = settings_for_custom.set_string(SETTINGS_EDITOR_FONT_CUSTOM_KEY, &family);
+            let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
+            let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY, &family);
             custom_caption_for_family.set_label(&family);
 
             let family_markup = glib::markup_escape_text(&family);
@@ -511,7 +500,6 @@ impl PennaFrontendApplication {
         };
         entry_format_preview.set_text(&preview_datetime_format(initial_format));
 
-        let settings_for_entry_format = gio::Settings::new(SETTINGS_SCHEMA_ID);
         let app_for_entry_format = self.clone();
         entry_format_row.connect_text_notify(move |row| {
             let text = row.text();
@@ -521,8 +509,7 @@ impl PennaFrontendApplication {
                 text.trim()
             };
 
-            let _ = settings_for_entry_format
-                .set_string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY, normalized);
+            let _ = settings::set_str(settings::SETTINGS_ENTRY_DATETIME_FORMAT_KEY, normalized);
 
             entry_format_preview.set_text(&preview_datetime_format(normalized));
 

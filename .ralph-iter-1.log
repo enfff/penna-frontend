@@ -1,19 +1,14 @@
-T13 is up: proper plural forms via `ngettext`. Gathering context first.
-All context gathered. Now implementing T13: convert the three count-bearing strings to `ngettext`, folding the hardcoded singular into the plural-aware helper.
-Gate check on the Rust side:
-Gate failed on toolchain version — checking how previous iterations ran it green:
-Timeline is now clear: dependency pins were bumped today (16:29) to gtk-rs versions requiring rustc 1.92, but this machine only has rustc 1.88 — the gate is broken at HEAD, before any of my changes. Checking whether the lockfile is merely stale relative to `Cargo.toml` (which would explain a forced re-resolution) and what's actually committed:
-HEAD itself can't build on this toolchain — the dep bump landed before my iteration. Before declaring anything blocked, testing whether cargo will still use the complete lockfile when it can't re-resolve (`--offline`):
-`--offline` confirms it: cargo 1.88 hard-refuses the committed lockfile (gtk-rs stack declares `rust-version = 1.92`). This is an environment/repo mismatch that predates my changes — fixing it would require either a toolchain upgrade or editing `Cargo.toml`/`Cargo.lock`, both outside my sanctioned scope. Quick probe for any usable newer toolchain/network, then I'll finish everything about T13 that *doesn't* depend on cargo (the entire po/POT half) and report precisely.
-There's a rustup-managed `stable` toolchain on disk — checking whether it's new enough to matter:
-rustup stable is 1.98 (≥1.92) but has no shims wired into PATH, and `/usr/bin/cargo` is 1.88. Shadowing system cargo machine-wide isn't a call an autonomous loop agent should make — that's the human's fix to apply. Proceeding with everything in T13 that doesn't need the gate (the full POT/po half):
-POT is exactly right. Now merging into the three catalogs:
-Filling in correct singular/plural translations and clearing the fuzzy flags in all three files:
-Now the French header fix (official French rule treats 0 as singular, unlike German/Italian):
-`--check` passes, but 2 fuzzy + 1 untranslated per file would silently fall back to English at runtime — not acceptable for a translation refresh. Finding them:
-Grep forensics are getting confusing — reading the actual file state directly:
-Something modified the po files outside my edits — checking mtimes and current diff state:
-All three po files were rewritten 25 seconds ago by something that isn't me — checking what they now contain and whether another process is active in this repo:
-Concurrent edits are landing in the worktree — `src/application.rs`, `src/config.rs`, `src/window.ui` modified, and a brand-new `rust-toolchain.toml` appeared. Someone else (likely the human) is live-fixing the environment. Inspecting what changed and whether the gate can pass now:
-My T13 changes are intact; the concurrent actor added their own feature (`change_repository`) plus `rust-toolchain.toml` pinning stable. Testing whether the gate works now:
-Gate is green. Running the test suite to confirm the plural behavior end-to-end:
+First iteration (progress.txt is empty). Task: **T16 — Settings layer**. Let me survey the settings usage.
+I have the full picture. Now checking remaining `gio` usages so imports stay tight:
+gio 0.22 setters return `Result<(), glib::error::BoolError>`. Now creating the settings module:
+Now wiring it up — main.rs module declaration, then window.rs call sites:
+Now application.rs:
+Running the gate:
+Missing trait import:
+Gate green. Verifying no stragglers and recording:
+**T16 complete.**
+
+- **What moved**: all six `SETTINGS_*` key constants plus a thin `gio::Settings` wrapper (`get_str`/`set_str`/`get_bool`/`set_bool`) into new `src/settings.rs`; the duplicate `SETTINGS_SCHEMA_ID` constants in window.rs and application.rs were deleted (now defined once in settings.rs). All 18 call sites across window.rs and application.rs go through `crate::settings`. No direct `gio::Settings` usage remains outside settings.rs.
+- **Line counts**: settings.rs 38 (new), window.rs 4102 (was 4114), application.rs 562 (was 575).
+- **Gate**: clippy `-D warnings` clean, 82 tests pass.
+- Behavior freeze respected — pure mechanical move, no msgid or .ui changes, no git operations.

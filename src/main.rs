@@ -23,6 +23,7 @@ mod conflict;
 mod config;
 mod engine;
 mod i18n;
+mod settings;
 mod window;
 
 use self::application::PennaFrontendApplication;

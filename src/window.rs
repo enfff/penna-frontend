@@ -39,13 +39,8 @@ use crate::conflict::{
 use crate::engine::{
     EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
 };
+use crate::settings;
 
-const SETTINGS_SCHEMA_ID: &str = "io.github.enfff.Diary";
-const SETTINGS_REPOSITORY_PATH_KEY: &str = "repository-path";
-const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
-const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
-const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
-const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
@@ -1101,8 +1096,7 @@ impl PennaFrontendWindow {
     }
 
     fn load_editor_preferences(&self) {
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let viewer_mode = settings.boolean(SETTINGS_EDITOR_VIEWER_MODE_KEY);
+        let viewer_mode = settings::get_bool(settings::SETTINGS_EDITOR_VIEWER_MODE_KEY);
         *self.imp().editor_viewer_mode.borrow_mut() = viewer_mode;
         self.apply_editor_mode();
     }
@@ -1112,8 +1106,7 @@ impl PennaFrontendWindow {
         let next = !*imp.editor_viewer_mode.borrow();
         *imp.editor_viewer_mode.borrow_mut() = next;
 
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let _ = settings.set_boolean(SETTINGS_EDITOR_VIEWER_MODE_KEY, next);
+        let _ = settings::set_bool(settings::SETTINGS_EDITOR_VIEWER_MODE_KEY, next);
 
         self.apply_editor_mode();
     }
@@ -1493,9 +1486,8 @@ impl PennaFrontendWindow {
     fn apply_editor_css(&self) {
         let imp = self.imp();
         let font_size = *imp.editor_font_size_pt.borrow();
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let font_preset = settings.string(SETTINGS_EDITOR_FONT_PRESET_KEY).to_string();
-        let custom_font = settings.string(SETTINGS_EDITOR_FONT_CUSTOM_KEY).to_string();
+        let font_preset = settings::get_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY);
+        let custom_font = settings::get_str(settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY);
 
         let font_family_rule = match font_preset.as_str() {
             "sans" => "font-family: \"Adwaita Sans\", Sans;".to_string(),
@@ -1731,8 +1723,7 @@ impl PennaFrontendWindow {
     }
 
     fn initialize_repository_state(&self) {
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let repo_path = settings.string(SETTINGS_REPOSITORY_PATH_KEY).to_string();
+        let repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
 
         if repo_path.trim().is_empty() {
             self.show_setup_page();
@@ -1762,8 +1753,8 @@ impl PennaFrontendWindow {
             Ok(result) => {
                 *imp.current_handle.borrow_mut() = Some(result.journal_handle);
 
-                let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-                let _ = settings.set_string(SETTINGS_REPOSITORY_PATH_KEY, &repo_path);
+                let _ =
+                    settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, &repo_path);
 
                 let sync_message = match result.journal_kind {
                     JournalKind::New => "New diary initialized and connected",
@@ -2710,10 +2701,7 @@ impl PennaFrontendWindow {
     }
 
     fn effective_entry_datetime_format() -> String {
-        let settings = gio::Settings::new(SETTINGS_SCHEMA_ID);
-        let raw = settings
-            .string(SETTINGS_ENTRY_DATETIME_FORMAT_KEY)
-            .to_string();
+        let raw = settings::get_str(settings::SETTINGS_ENTRY_DATETIME_FORMAT_KEY);
         let candidate = if raw.trim().is_empty() {
             ENTRY_DATETIME_FORMAT_DEFAULT
         } else {
