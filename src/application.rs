@@ -135,7 +135,7 @@ impl PennaFrontendApplication {
         glib::Object::builder()
             .property("application-id", application_id)
             .property("flags", flags)
-            .property("resource-base-path", "/com/github/pennafe")
+            .property("resource-base-path", "/io/github/enfff/Diary")
             .build()
     }
 
@@ -565,7 +565,7 @@ impl PennaFrontendApplication {
             return;
         };
 
-        let builder = gtk::Builder::from_resource("/com/github/pennafe/shortcuts-dialog.ui");
+        let builder = gtk::Builder::from_resource("/io/github/enfff/Diary/shortcuts-dialog.ui");
         let Some(shortcuts) = builder.object::<adw::ShortcutsDialog>("shortcuts_dialog") else {
             return;
         };

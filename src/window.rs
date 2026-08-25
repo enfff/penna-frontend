@@ -113,7 +113,7 @@ mod imp {
     use super::*;
 
     #[derive(Debug, gtk::CompositeTemplate)]
-    #[template(resource = "/com/github/pennafe/window.ui")]
+    #[template(resource = "/io/github/enfff/Diary/window.ui")]
     pub struct PennaFrontendWindow {
         #[template_child]
         pub app_stack: TemplateChild<gtk::Stack>,

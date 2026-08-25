@@ -1,8 +1,8 @@
 # Diary
 
-A journal app for GNOME. Entries are plain Markdown files in a git repo,
-so history and sync come from git, and your notes stay readable even
-without this app.
+A journal app for GNOME, built in top of the [penna engine](https://www.github.com/enfff/penna).
+Entries are plain Markdown files in a git repo, so history and sync  
+come from git, and your notes stay readable even without this app.
 
 ## Build
 
