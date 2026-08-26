@@ -3,5 +3,6 @@
   <gresource prefix="/io/github/enfff/Diary">
     <file preprocess="xml-stripblanks">window.ui</file>
     <file preprocess="xml-stripblanks">shortcuts-dialog.ui</file>
+    <file alias="icons/hicolor/symbolic/actions/cloud-deploy-symbolic.svg">icons/cloud-deploy-symbolic.svg</file>
   </gresource>
 </gresources>

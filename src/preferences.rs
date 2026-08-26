@@ -422,7 +422,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         });
     }
     let change_button = gtk::Button::builder()
-        .icon_name("folder-open-symbolic")
+        .icon_name("document-open-symbolic")
         .tooltip_text(crate::i18n::change_action_label())
         .valign(gtk::Align::Center)
         .css_classes(vec!["flat".to_string()])

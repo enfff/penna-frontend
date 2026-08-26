@@ -54,6 +54,13 @@ fn main() -> glib::ExitCode {
         .expect("Could not load resources");
     gio::resources_register(&resources);
 
+    // Make bundled action icons resolvable by the icon theme in every
+    // environment (uninstalled dev runs, flatpak, system installs).
+    if let Some(display) = gtk::gdk::Display::default() {
+        gtk::IconTheme::for_display(&display)
+            .add_resource_path("/io/github/enfff/Diary/icons");
+    }
+
     // Create a new GtkApplication. The application manages our main loop,
     // application windows, integration with the window manager/compositor, and
     // desktop features such as file opening and single-instance applications.
