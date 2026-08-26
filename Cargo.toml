@@ -15,3 +15,7 @@ penna-engine = { git = "https://github.com/enfff/penna", tag = "v0.2.1" }
 package = "libadwaita"
 version = "0.9"
 features = ["v1_9"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
