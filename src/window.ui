@@ -25,7 +25,7 @@
                     </style>
                     <child type="start">
                       <object class="GtkButton" id="sync_button">
-                        <property name="icon-name">view-refresh-symbolic</property>
+                        <property name="icon-name">cloud-deploy-symbolic</property>
                         <property name="tooltip-text" translatable="yes">Sync now</property>
                         <property name="action-name">win.sync-journal</property>
                       </object>

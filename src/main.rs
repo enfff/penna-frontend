@@ -54,6 +54,14 @@ fn main() -> glib::ExitCode {
         .expect("Could not load resources");
     gio::resources_register(&resources);
 
+    // Bundled action icons: the user's icon theme (e.g. MoreWaita) may not
+    // provide every name we use, and GTK never falls through to Adwaita
+    // from third-party themes. Registered paths are consulted first.
+    if let Some(display) = gtk::gdk::Display::default() {
+        gtk::IconTheme::for_display(&display)
+            .add_resource_path("/io/github/enfff/Diary/icons");
+    }
+
     // Create a new GtkApplication. The application manages our main loop,
     // application windows, integration with the window manager/compositor, and
     // desktop features such as file opening and single-instance applications.
