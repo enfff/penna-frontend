@@ -153,23 +153,22 @@ pub fn apply_editor_css(window: &PennaFrontendWindow) {
             .note-row {{\
                 padding: 4px 2px;\
                 border-radius: 10px;\
-            }}\
-            /* Hover/press/selection shading is drawn entirely by the\
-             * button as one layered rectangle; the surrounding\
-             * flowboxchild would otherwise stack its own tint (see\
-             * libadwaita _views.scss) and double up the highlight. */\
-            flowbox.notes-grid > flowboxchild:hover,\
-            flowbox.notes-grid > flowboxchild:active {{\
                 background: none;\
             }}\
-            .note-row:hover {{\
+            /* All row shading (hover, press, selection) lives solely on\
+             * the flowboxchild wrapper as one rectangle with state-\
+             * dependent intensity; painting any tint on the button too\
+             * stacks two visible layers. */\
+            flowbox.notes-grid > flowboxchild {{\
+                border-radius: 10px;\
+            }}\
+            flowbox.notes-grid > flowboxchild:hover {{\
                 background-color: alpha(currentColor, 0.07);\
             }}\
-            .note-row:active {{\
+            flowbox.notes-grid > flowboxchild:active {{\
                 background-color: alpha(currentColor, 0.12);\
             }}\
             flowbox.notes-grid > flowboxchild.note-current {{\
-                border-radius: 10px;\
                 background-color: alpha(currentColor, 0.06);\
             }}\
             flowbox.notes-grid > flowboxchild.note-current:hover {{\
