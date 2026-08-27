@@ -1,9 +1,12 @@
-//! Back-swipe gesture installation for the editor page.
+//! Swipe-gesture fallbacks for NavigationView's built-in swipes.
 //!
-//! NavigationView's built-in back-swipe gestures live in the bubble phase,
-//! where the editor's ScrolledWindow out-competes them. These installers
-//! re-add equivalent capture-phase controllers on the editor page so they
-//! arbitrate first.
+//! NavigationView's built-in swipe gestures live in the bubble phase. When a
+//! page's ScrolledWindow cannot scroll (a short note, or a grid that fits on
+//! screen) the built-in swipe works as-is, with live finger-tracking. Once the
+//! content is scrollable, the ScrolledWindow consumes the smooth-scroll stream
+//! for vertical scrolling and starves the built-in tracker. These installers
+//! re-add equivalent capture-phase controllers that engage only in that
+//! scrollable case, so the gesture keeps working without double-firing.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -212,10 +215,111 @@ pub fn install_editor_back_swipe_touchpad(window: &PennaFrontendWindow) {
     window.imp().editor_page.add_controller(gesture);
 }
 
+// Touchpad forward-swipe on the notes grid: a two-finger leftward swipe
+// reaches us as a smooth scroll stream, not touch events. When the grid is not
+// scrollable, NavigationView's built-in forward swipe already handles it with
+// live finger-tracking, so this only engages when the grid is scrollable —
+// otherwise the ScrolledWindow starves the built-in tracker and the swipe
+// dies. Mirrors the editor touchpad back-swipe, but fires on leftward motion
+// (POSITIVE dx with natural scrolling).
+pub fn install_grid_reopen_swipe_touchpad(window: &PennaFrontendWindow) {
+    #[derive(Clone, Copy)]
+    enum Stream {
+        Idle,
+        Armed { acc_dx: f64, acc_dy: f64 },
+        Done,
+    }
+    let stream: Rc<Cell<Stream>> = Rc::new(Cell::new(Stream::Idle));
+
+    let gesture = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+
+    {
+        let stream = Rc::clone(&stream);
+        gesture.connect_scroll_begin(glib::clone!(
+            #[weak(rename_to = window)]
+            window,
+            move |_| {
+                stream.set(Stream::Idle);
+                let imp = window.imp();
+                let in_grid = *imp.in_notes_grid_view.borrow();
+                // Only engage when the grid actually scrolls: when it does not,
+                // the built-in NavigationView forward swipe handles the gesture
+                // (with live tracking) and we would double-fire alongside it.
+                let armed = in_grid && grid_content_scrollable(&window);
+                if armed {
+                    stream.set(Stream::Armed {
+                        acc_dx: 0.0,
+                        acc_dy: 0.0,
+                    });
+                }
+            }
+        ));
+    }
+
+    {
+        let stream = Rc::clone(&stream);
+        gesture.connect_scroll(glib::clone!(
+            #[weak(rename_to = window)]
+            window,
+            #[upgrade_or_else]
+            || glib::Propagation::Proceed,
+            move |_, dx, dy| {
+                match stream.get() {
+                    Stream::Idle => glib::Propagation::Proceed,
+                    Stream::Done => glib::Propagation::Stop,
+                    Stream::Armed {
+                        mut acc_dx,
+                        mut acc_dy,
+                    } => {
+                        acc_dx += dx;
+                        acc_dy += dy;
+                        if acc_dx.abs().max(acc_dy.abs()) >= BACK_SWIPE_TOUCHPAD_DECIDE_PX {
+                            if acc_dx > 0.0 && acc_dx >= acc_dy.abs() {
+                                if acc_dx >= BACK_SWIPE_TOUCHPAD_POP_PX {
+                                    window.reopen_last_entry();
+                                    stream.set(Stream::Done);
+                                    return glib::Propagation::Stop;
+                                }
+                            } else {
+                                stream.set(Stream::Idle);
+                                return glib::Propagation::Proceed;
+                            }
+                        }
+                        stream.set(Stream::Armed { acc_dx, acc_dy });
+                        glib::Propagation::Proceed
+                    }
+                }
+            }
+        ));
+    }
+
+    {
+        let stream = Rc::clone(&stream);
+        gesture.connect_scroll_end(move |_| {
+            stream.set(Stream::Idle);
+        });
+    }
+
+    window.imp().notes_page.add_controller(gesture);
+}
+
 fn editor_content_scrollable(window: &PennaFrontendWindow) -> bool {
     window
         .imp()
         .editor_view
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
+        .is_some_and(|scrolled| {
+            let adj = scrolled.vadjustment();
+            adj.upper() > adj.page_size() + 1.0
+        })
+}
+
+fn grid_content_scrollable(window: &PennaFrontendWindow) -> bool {
+    window
+        .imp()
+        .notes_flowbox
         .ancestor(gtk::ScrolledWindow::static_type())
         .and_then(|widget| widget.downcast::<gtk::ScrolledWindow>().ok())
         .is_some_and(|scrolled| {

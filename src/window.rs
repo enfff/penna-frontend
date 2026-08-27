@@ -730,6 +730,44 @@ impl PennaFrontendWindow {
             }
         ));
 
+        // NavigationView's built-in forward swipe (a leftward touchpad swipe, or
+        // the right-arrow / navigation.push action) pushes the next page. The
+        // editor page is the only next page in this app: it is a persistent
+        // child whose buffer still shows the last opened note, so hand it back
+        // and let the NavigationView run the live, finger-tracked push.
+        imp.content_view.connect_get_next_page(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[upgrade_or_else]
+            || None::<adw::NavigationPage>,
+            move |_view| -> Option<adw::NavigationPage> {
+                let imp = window.imp();
+                let on_grid = *imp.in_notes_grid_view.borrow();
+                let has_entry = imp.current_entry_id.borrow().is_some();
+                if on_grid && has_entry {
+                    Some((*imp.editor_page).clone())
+                } else {
+                    None
+                }
+            }
+        ));
+
+        // A push lands the user in the editor. A button open already ran
+        // show_editor_view before pushing, so skip it there; a forward swipe
+        // pushes without touching app state, so resync here — mirroring the
+        // popped handler above.
+        imp.content_view.connect_pushed(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |view| {
+                if PennaFrontendWindow::content_view_on_editor(view)
+                    && !*window.imp().in_editor_view.borrow()
+                {
+                    window.show_editor_view();
+                }
+            }
+        ));
+
         let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
         scroll.connect_scroll(glib::clone!(
@@ -848,6 +886,7 @@ impl PennaFrontendWindow {
 
         gestures::install_editor_back_swipe(self);
         gestures::install_editor_back_swipe_touchpad(self);
+        gestures::install_grid_reopen_swipe_touchpad(self);
         editor::load_editor_preferences(self);
         self.show_grid_view();
         self.initialize_repository_state();
@@ -1542,13 +1581,24 @@ impl PennaFrontendWindow {
     }
 
     pub(crate) fn open_entry(&self, entry_id: &str) {
+        if self.load_entry(entry_id) {
+            self.show_editor_view();
+        }
+    }
+
+    /// Loads a note into the editor buffer and syncs entry state without
+    /// navigating. Returns false if the note cannot be loaded (no repository
+    /// connected, or it has since been deleted). A button open follows up with
+    /// show_editor_view; a forward swipe lets the NavigationView push the
+    /// editor page itself.
+    fn load_entry(&self, entry_id: &str) -> bool {
         let imp = self.imp();
         let Some(handle) = *imp.current_handle.borrow() else {
-            return;
+            return false;
         };
 
         let Some(entry) = sync::get_entry(self, handle, entry_id) else {
-            return;
+            return false;
         };
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
@@ -1561,8 +1611,20 @@ impl PennaFrontendWindow {
         self.set_entry_modified(false);
         editor::apply_editor_mode(self);
         self.apply_markdown_styling();
-        self.show_editor_view();
         self.refresh_conflict_widgets();
+        true
+    }
+
+    /// Reopen the most recently opened note — the one tracked in
+    /// `current_entry_id` (shown in the editor before the user last returned
+    /// to the grid). No-op if none is tracked, or if it has since been deleted
+    /// (get_entry returns None). Used by the scrollable-grid forward swipe,
+    /// which NavigationView's built-in live swipe cannot drive.
+    pub(crate) fn reopen_last_entry(&self) {
+        let Some(entry_id) = self.imp().current_entry_id.borrow().clone() else {
+            return;
+        };
+        self.open_entry(&entry_id);
     }
 
     fn save_current_entry(&self) {
