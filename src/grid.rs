@@ -81,7 +81,17 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
         tags_box.append(&tags_spacer);
         tags_box.append(&tags_inner);
 
-        row_box.set_start_widget(Some(&note_label));
+        let leading_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        leading_box.set_hexpand(true);
+        if conflicted_ids.iter().any(|id| id == &entry.entry_id) {
+            let conflict_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+            conflict_icon.set_tooltip_text(Some(&i18n::unresolved_sync_conflict()));
+            conflict_icon.add_css_class("warning");
+            conflict_icon.set_valign(gtk::Align::Center);
+            leading_box.append(&conflict_icon);
+        }
+        leading_box.append(&note_label);
+        row_box.set_start_widget(Some(&leading_box));
         if !entry.tags.is_empty() {
             for tag in visible_tags_for_row(&entry.tags) {
                 tags_inner.append(&build_tag_chip(tag));
@@ -92,13 +102,6 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
             }
         }
         row_box.set_end_widget(Some(&tags_box));
-        if conflicted_ids.iter().any(|id| id == &entry.entry_id) {
-            let conflict_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
-            conflict_icon.set_tooltip_text(Some(&i18n::unresolved_sync_conflict()));
-            conflict_icon.add_css_class("warning");
-            conflict_icon.set_margin_end(8);
-            row_box.set_center_widget(Some(&conflict_icon));
-        }
         button.set_child(Some(&row_box));
 
         let entry_id = entry.entry_id.clone();

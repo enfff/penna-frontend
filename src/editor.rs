@@ -102,6 +102,10 @@ pub fn apply_editor_mode(window: &PennaFrontendWindow) {
         } else {
             "Turn on viewer mode"
         }));
+
+    // Entering viewer mode hides the inline resolution buttons; leaving it
+    // brings them back for any conflicts still present.
+    window.refresh_conflict_widgets();
 }
 
 pub fn setup_editor_css(window: &PennaFrontendWindow) {
@@ -195,6 +199,29 @@ pub fn apply_editor_css(window: &PennaFrontendWindow) {
             }}\
             .tag-chip label {{\
                 font-size: 0.9em;\
+            }}\
+            .conflict-resolve button {{\
+                padding: 1px 8px;\
+                border-radius: 999px;\
+                font-size: 0.8em;\
+            }}\
+            .conflict-current-button {{\
+                background-color: alpha(#4caf50, 0.22);\
+            }}\
+            .conflict-current-button:hover {{\
+                background-color: alpha(#4caf50, 0.34);\
+            }}\
+            .conflict-incoming-button {{\
+                background-color: alpha(#2979ff, 0.22);\
+            }}\
+            .conflict-incoming-button:hover {{\
+                background-color: alpha(#2979ff, 0.34);\
+            }}\
+            .conflict-both-button {{\
+                background-color: alpha(#9c27b0, 0.22);\
+            }}\
+            .conflict-both-button:hover {{\
+                background-color: alpha(#9c27b0, 0.34);\
             }}"
         ));
     }
@@ -324,15 +351,19 @@ pub fn setup_editor_tags(window: &PennaFrontendWindow) {
     add_tag(
         &gtk::TextTag::builder()
             .name(TAG_CONFLICT_CURRENT)
-            .background_rgba(&gdk::RGBA::new(0.30, 0.69, 0.31, 0.16))
+            .background_rgba(&gdk::RGBA::new(0.18, 0.72, 0.26, 0.18))
+            .background_set(true)
             .background_full_height(true)
+            .background_full_height_set(true)
             .build(),
     );
     add_tag(
         &gtk::TextTag::builder()
             .name(TAG_CONFLICT_INCOMING)
-            .background_rgba(&gdk::RGBA::new(0.16, 0.50, 0.85, 0.16))
+            .background_rgba(&gdk::RGBA::new(0.12, 0.45, 0.95, 0.18))
+            .background_set(true)
             .background_full_height(true)
+            .background_full_height_set(true)
             .build(),
     );
     add_tag(

@@ -176,9 +176,10 @@ pub(crate) struct ConflictSpan {
 
 /// Maps parsed conflict segments into styleable line ranges.
 ///
-/// Every well-formed block yields one span per non-empty side plus three
-/// single-line marker spans; blocks the parser demoted to prose yield
-/// nothing, so hand-written marker lookalikes are never styled.
+/// Every well-formed block yields a span per non-empty side, the dimmed marker
+/// style for all three marker lines, and a side tint on the `<<<<<<<` and
+/// `>>>>>>>` marker lines; blocks the parser demoted to prose yield nothing,
+/// so hand-written marker lookalikes are never styled.
 pub(crate) fn conflict_style_spans(content: &str) -> Vec<ConflictSpan> {
     let mut spans = Vec::new();
 
@@ -188,6 +189,9 @@ pub(crate) fn conflict_style_spans(content: &str) -> Vec<ConflictSpan> {
         match segment {
             ConflictSegment::Normal { .. } => {}
             ConflictSegment::Current { .. } => {
+                // The `<<<<<<<` header opens the current side, so it carries the
+                // current tint in addition to the dimmed marker style.
+                spans.push(single_line_span(ConflictSpanKind::CurrentLines, start - 1));
                 spans.push(marker_span(start - 1));
                 if end > start {
                     spans.push(ConflictSpan {
@@ -206,6 +210,9 @@ pub(crate) fn conflict_style_spans(content: &str) -> Vec<ConflictSpan> {
                         end_line: end,
                     });
                 }
+                // The `>>>>>>>` marker closes the incoming side, so it carries the
+                // incoming tint in addition to the dimmed marker style.
+                spans.push(single_line_span(ConflictSpanKind::IncomingLines, end));
                 spans.push(marker_span(end));
             }
         }
@@ -215,8 +222,12 @@ pub(crate) fn conflict_style_spans(content: &str) -> Vec<ConflictSpan> {
 }
 
 fn marker_span(line: usize) -> ConflictSpan {
+    single_line_span(ConflictSpanKind::MarkerLine, line)
+}
+
+fn single_line_span(kind: ConflictSpanKind, line: usize) -> ConflictSpan {
     ConflictSpan {
-        kind: ConflictSpanKind::MarkerLine,
+        kind,
         start_line: line,
         end_line: line + 1,
     }
@@ -226,10 +237,10 @@ fn marker_span(line: usize) -> ConflictSpan {
 /// time.
 ///
 /// Offsets count `char`s of the source content (the unit GTK text-buffer
-/// iterators work in). Each range begins at its line's first character
-/// and spans exactly one character when that line is newline-terminated;
-/// for an unterminated final line it is zero-width (the tag applier
-/// skips empty ranges).
+/// iterators work in). Each range begins at its line's first character and
+/// spans the line's full text (excluding any trailing newline) so the tag
+/// paints the whole line; a blank line yields a zero-width range the tag
+/// applier skips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ConflictStyleRange {
     pub(crate) kind: ConflictSpanKind,
@@ -247,12 +258,12 @@ pub(crate) fn conflict_style_char_ranges(content: &str) -> Vec<ConflictStyleRang
     let mut line_bounds: Vec<(usize, usize)> = Vec::new();
     let mut position = 0usize;
     for line in content.split_inclusive('\n') {
-        let width = line.chars().count();
-        line_bounds.push((
-            position,
-            position + width - line.trim_end_matches('\n').chars().count(),
-        ));
-        position += width;
+        // Span the line's full text so the tag paints the whole line, not
+        // just its first glyph; drop the trailing newline so the background
+        // ends at the last character of content.
+        let text_len = line.trim_end_matches('\n').chars().count();
+        line_bounds.push((position, position + text_len));
+        position += line.chars().count();
     }
 
     let mut ranges = Vec::new();
@@ -277,6 +288,8 @@ pub(crate) enum ConflictSide {
     Current,
     /// The lines between `=======` and `>>>>>>>`.
     Incoming,
+    /// Both sides kept, concatenated (this side first, then the other).
+    Both,
 }
 
 /// The splice [`ConflictBlock::resolve`] proposes: delete every line of the
@@ -302,6 +315,15 @@ pub(crate) struct ConflictBlock {
     pub(crate) start_line: usize,
     /// Exclusive.
     pub(crate) end_line: usize,
+    /// 0-based line holding the end-of-line "this device" button: the
+    /// `<<<<<<<` header line.
+    pub(crate) current_anchor_line: usize,
+    /// 0-based line holding the end-of-line "keep both" button: the `=======`
+    /// separator line, dead centre between the two sides.
+    pub(crate) separator_anchor_line: usize,
+    /// 0-based line holding the end-of-line "other device" button: the
+    /// `>>>>>>>` end marker line.
+    pub(crate) incoming_anchor_line: usize,
     pub(crate) current_text: String,
     pub(crate) incoming_text: String,
 }
@@ -316,6 +338,15 @@ impl ConflictBlock {
         let replacement = match side {
             ConflictSide::Current => self.current_text.clone(),
             ConflictSide::Incoming => self.incoming_text.clone(),
+            ConflictSide::Both => {
+                // Git conflicts are line-granular: each side is whole lines, and
+                // `current_text` always ends in a newline (the `=======` line
+                // follows it in a well-formed block), so the two sides keep a
+                // line boundary between them and never fuse into one line.
+                let mut both = self.current_text.clone();
+                both.push_str(&self.incoming_text);
+                both
+            }
         };
 
         ConflictResolution {
@@ -326,13 +357,14 @@ impl ConflictBlock {
     }
 }
 
-/// Finds the well-formed conflict block containing 0-based `line`.
+/// Lists every well-formed conflict block in `content`, in document order.
 ///
-/// Every line of a block qualifies — markers included — so acting on the
-/// cursor wherever it sits inside the tinted region resolves that block.
-/// Plain prose and malformed marker lookalikes yield `None`.
-pub(crate) fn conflict_block_at_line(content: &str, line: usize) -> Option<ConflictBlock> {
+/// Each block spans from the `<<<<<<<` header line to the line after the
+/// `>>>>>>>` end marker. Drives the editor's inline resolution buttons, one
+/// per block.
+pub(crate) fn conflict_blocks(content: &str) -> Vec<ConflictBlock> {
     let segments = split_conflict_segments(content);
+    let mut blocks = Vec::new();
 
     for pair in segments.windows(2) {
         if !matches!(
@@ -348,21 +380,39 @@ pub(crate) fn conflict_block_at_line(content: &str, line: usize) -> Option<Confl
         // The parser drops marker lines from segment texts, so the header
         // sits directly above the current side and the end marker directly
         // below the incoming side.
-        let start_line = current.start_line() - 1;
-        let end_line = incoming.start_line() + incoming.line_count() + 1;
-        if line < start_line || line >= end_line {
-            continue;
-        }
+        let current_start = current.start_line();
+        let incoming_start = incoming.start_line();
+        let incoming_lines = incoming.line_count();
 
-        return Some(ConflictBlock {
+        let start_line = current_start - 1;
+        let end_line = incoming_start + incoming_lines + 1;
+
+        blocks.push(ConflictBlock {
             start_line,
             end_line,
+            // The buttons sit on the marker lines themselves: "this device"
+            // beside the `<<<<<<<` header, "keep both" beside the `=======`
+            // separator, "other device" beside the `>>>>>>>` end marker.
+            current_anchor_line: start_line,
+            separator_anchor_line: incoming_start - 1,
+            incoming_anchor_line: end_line - 1,
             current_text: current.text().to_string(),
             incoming_text: incoming.text().to_string(),
         });
     }
 
-    None
+    blocks
+}
+
+/// Finds the well-formed conflict block containing 0-based `line`.
+///
+/// Every line of a block qualifies — markers included — so acting on the
+/// cursor wherever it sits inside the tinted region resolves that block.
+/// Plain prose and malformed marker lookalikes yield `None`.
+pub(crate) fn conflict_block_at_line(content: &str, line: usize) -> Option<ConflictBlock> {
+    conflict_blocks(content)
+        .into_iter()
+        .find(|block| line >= block.start_line && line < block.end_line)
 }
 
 /// Counts the well-formed conflict blocks still unresolved in entry content.
@@ -705,12 +755,14 @@ theirs
         let content = format!("intro\n{BLOCK}outro\n");
         let spans = conflict_style_spans(&content);
 
-        assert_eq!(spans.len(), 5);
-        assert_marker(&spans[0], 1);
-        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 2, 3);
-        assert_marker(&spans[2], 3);
-        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 4, 5);
-        assert_marker(&spans[4], 5);
+        assert_eq!(spans.len(), 7);
+        assert_side(&spans[0], ConflictSpanKind::CurrentLines, 1, 2);
+        assert_marker(&spans[1], 1);
+        assert_side(&spans[2], ConflictSpanKind::CurrentLines, 2, 3);
+        assert_marker(&spans[3], 3);
+        assert_side(&spans[4], ConflictSpanKind::IncomingLines, 4, 5);
+        assert_side(&spans[5], ConflictSpanKind::IncomingLines, 5, 6);
+        assert_marker(&spans[6], 5);
     }
 
     #[test]
@@ -718,11 +770,11 @@ theirs
         let content = format!("{BLOCK}{BLOCK}tail\n");
         let spans = conflict_style_spans(&content);
 
-        assert_eq!(spans.len(), 10);
-        assert_marker(&spans[0], 0);
-        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 1, 2);
-        assert_side(&spans[6], ConflictSpanKind::CurrentLines, 6, 7);
-        assert_marker(&spans[9], 9);
+        assert_eq!(spans.len(), 14);
+        assert_side(&spans[0], ConflictSpanKind::CurrentLines, 0, 1);
+        assert_side(&spans[2], ConflictSpanKind::CurrentLines, 1, 2);
+        assert_side(&spans[9], ConflictSpanKind::CurrentLines, 6, 7);
+        assert_marker(&spans[13], 9);
         assert!(spans
             .windows(2)
             .all(|pair| pair[0].start_line <= pair[1].start_line));
@@ -733,26 +785,27 @@ theirs
         let content = format!("{BLOCK}after\n");
         let spans = conflict_style_spans(&content);
 
-        assert_eq!(spans.len(), 5);
-        assert_marker(&spans[0], 0);
-        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 1, 2);
-        assert_marker(&spans[2], 2);
-        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 3, 4);
-        assert_marker(&spans[4], 4);
+        assert_eq!(spans.len(), 7);
+        assert_side(&spans[0], ConflictSpanKind::CurrentLines, 0, 1);
+        assert_marker(&spans[1], 0);
+        assert_side(&spans[2], ConflictSpanKind::CurrentLines, 1, 2);
+        assert_marker(&spans[3], 2);
+        assert_side(&spans[4], ConflictSpanKind::IncomingLines, 3, 4);
+        assert_side(&spans[5], ConflictSpanKind::IncomingLines, 4, 5);
+        assert_marker(&spans[6], 4);
     }
 
     #[test]
-    fn empty_sides_produce_marker_spans_only() {
+    fn empty_sides_produce_marker_and_tint_spans() {
         let content = "<<<<<<< HEAD\n=======\n>>>>>>> topic\n";
         let spans = conflict_style_spans(content);
 
-        assert_eq!(spans.len(), 3);
-        assert!(spans
-            .iter()
-            .all(|span| span.kind == ConflictSpanKind::MarkerLine));
-        assert_marker(&spans[0], 0);
-        assert_marker(&spans[1], 1);
-        assert_marker(&spans[2], 2);
+        assert_eq!(spans.len(), 5);
+        assert_side(&spans[0], ConflictSpanKind::CurrentLines, 0, 1);
+        assert_marker(&spans[1], 0);
+        assert_marker(&spans[2], 1);
+        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 2, 3);
+        assert_marker(&spans[4], 2);
     }
 
     #[test]
@@ -769,9 +822,9 @@ e
 ";
         let spans = conflict_style_spans(content);
 
-        assert_eq!(spans.len(), 5);
-        assert_side(&spans[1], ConflictSpanKind::CurrentLines, 1, 3);
-        assert_side(&spans[3], ConflictSpanKind::IncomingLines, 4, 7);
+        assert_eq!(spans.len(), 7);
+        assert_side(&spans[2], ConflictSpanKind::CurrentLines, 1, 3);
+        assert_side(&spans[4], ConflictSpanKind::IncomingLines, 4, 7);
     }
 
     #[test]
@@ -821,18 +874,19 @@ theirs
 ";
 
     #[test]
-    fn bare_block_expands_to_five_per_line_ranges() {
-        // Pins the applier's current offset contract verbatim: a range
-        // starts at its line and spans one char for a newline-terminated
-        // line, zero chars otherwise.
+    fn bare_block_expands_to_seven_per_line_ranges() {
+        // Pins the applier's offset contract: each range spans its line's
+        // full text (trailing newline excluded).
         let ranges = conflict_style_char_ranges(BLOCK);
 
-        let expected: [(ConflictSpanKind, usize, usize); 5] = [
-            (ConflictSpanKind::MarkerLine, 0, 1),
-            (ConflictSpanKind::CurrentLines, 13, 14),
-            (ConflictSpanKind::MarkerLine, 18, 19),
-            (ConflictSpanKind::IncomingLines, 26, 27),
-            (ConflictSpanKind::MarkerLine, 33, 34),
+        let expected: [(ConflictSpanKind, usize, usize); 7] = [
+            (ConflictSpanKind::CurrentLines, 0, 12),
+            (ConflictSpanKind::MarkerLine, 0, 12),
+            (ConflictSpanKind::CurrentLines, 13, 17),
+            (ConflictSpanKind::MarkerLine, 18, 25),
+            (ConflictSpanKind::IncomingLines, 26, 32),
+            (ConflictSpanKind::IncomingLines, 33, 46),
+            (ConflictSpanKind::MarkerLine, 33, 46),
         ];
         assert_eq!(ranges.len(), expected.len());
         for (range, (kind, start_char, end_char)) in ranges.iter().zip(expected.iter()) {
@@ -853,7 +907,7 @@ theirs
                 .iter()
                 .map(|range| range.end_char - range.start_char)
                 .collect::<Vec<_>>(),
-            vec![1, 1, 1, 1, 0]
+            vec![9, 9, 3, 7, 1, 9, 9]
         );
     }
 
@@ -873,20 +927,20 @@ e
 ";
         let ranges = conflict_style_char_ranges(content);
 
-        assert_eq!(ranges.len(), 10);
+        assert_eq!(ranges.len(), 12);
         assert_eq!(
             ranges
                 .iter()
                 .filter(|range| range.kind == ConflictSpanKind::CurrentLines)
                 .count(),
-            4
+            5
         );
         assert_eq!(
             ranges
                 .iter()
                 .filter(|range| range.kind == ConflictSpanKind::IncomingLines)
                 .count(),
-            3
+            4
         );
         assert_eq!(
             ranges
@@ -898,7 +952,7 @@ e
     }
 
     #[test]
-    fn ranges_start_on_line_boundaries_and_widths_follow_terminators() {
+    fn ranges_start_on_line_boundaries_and_span_the_line_text() {
         for content in [
             BLOCK.to_string(),
             format!("intro\n{BLOCK}outro\n"),
@@ -927,7 +981,7 @@ e
                     .unwrap_or_else(|| {
                         panic!("start {} off a line boundary in {content:?}", range.start_char)
                     });
-                let expected_width = usize::from(lines[index].ends_with('\n'));
+                let expected_width = lines[index].trim_end_matches('\n').chars().count();
                 assert_eq!(
                     range.end_char - range.start_char,
                     expected_width,
@@ -938,14 +992,16 @@ e
     }
 
     #[test]
-    fn empty_sides_produce_marker_ranges_only() {
+    fn empty_sides_produce_marker_and_tint_ranges() {
         let content = "<<<<<<< HEAD\n=======\n>>>>>>> topic\n";
         let ranges = conflict_style_char_ranges(content);
 
-        assert_eq!(ranges.len(), 3);
-        assert!(ranges
-            .iter()
-            .all(|range| range.kind == ConflictSpanKind::MarkerLine));
+        assert_eq!(ranges.len(), 5);
+        assert_eq!(ranges[0].kind, ConflictSpanKind::CurrentLines);
+        assert_eq!(ranges[1].kind, ConflictSpanKind::MarkerLine);
+        assert_eq!(ranges[2].kind, ConflictSpanKind::MarkerLine);
+        assert_eq!(ranges[3].kind, ConflictSpanKind::IncomingLines);
+        assert_eq!(ranges[4].kind, ConflictSpanKind::MarkerLine);
     }
 
     #[test]
@@ -999,6 +1055,36 @@ theirs
     }
 
     #[test]
+    fn conflict_blocks_lists_each_block_in_order() {
+        let content = format!("intro\n{BLOCK}mid\n{BLOCK}outro\n");
+        let blocks = conflict_blocks(&content);
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].start_line, 1);
+        assert_eq!(blocks[0].end_line, 6);
+        assert_eq!(blocks[0].current_text, "mine\n");
+        assert_eq!(blocks[0].incoming_text, "theirs\n");
+        // Each button anchors to a distinct marker line: `<<<<<<<`, `=======`,
+        // `>>>>>>>` — in that top-to-bottom order.
+        assert_eq!(blocks[0].current_anchor_line, 1);
+        assert_eq!(blocks[0].separator_anchor_line, 3);
+        assert_eq!(blocks[0].incoming_anchor_line, 5);
+        assert_eq!(blocks[1].start_line, 7);
+        assert_eq!(blocks[1].end_line, 12);
+        assert_eq!(blocks[1].current_text, "mine\n");
+        assert_eq!(blocks[1].incoming_text, "theirs\n");
+        assert_eq!(blocks[1].current_anchor_line, 7);
+        assert_eq!(blocks[1].separator_anchor_line, 9);
+        assert_eq!(blocks[1].incoming_anchor_line, 11);
+    }
+
+    #[test]
+    fn conflict_blocks_empty_when_no_conflicts() {
+        assert!(conflict_blocks("just prose\nand more\n").is_empty());
+        assert!(conflict_blocks("").is_empty());
+    }
+
+    #[test]
     fn cursor_on_any_block_line_finds_the_block() {
         let content = format!("pre\n{BLOCK}post\n");
 
@@ -1027,6 +1113,45 @@ theirs
 
         assert_eq!(resolved.replacement, "theirs\n");
         assert_eq!(apply_resolution(&content, &resolved), "pre\ntheirs\npost\n");
+    }
+
+    #[test]
+    fn keep_both_stacks_both_sides_in_document_order() {
+        let content = format!("pre\n{BLOCK}post\n");
+        let resolved = block_at(&content, 2).resolve(ConflictSide::Both);
+
+        assert_eq!(resolved.replacement, "mine\ntheirs\n");
+        assert_eq!(apply_resolution(&content, &resolved), "pre\nmine\ntheirs\npost\n");
+    }
+
+    #[test]
+    fn keep_both_never_fuses_the_two_sides_into_one_line() {
+        // A one-line-per-side conflict: the current side still ends in a
+        // newline (the `=======` line follows it), so the sides keep a line
+        // boundary between them instead of fusing into a broken line.
+        let content = "<<<<<<< H\none line\n=======\nother line\n>>>>>>> t\n";
+        let resolved = block_at(content, 1).resolve(ConflictSide::Both);
+
+        assert_eq!(resolved.replacement, "one line\nother line\n");
+        assert_eq!(apply_resolution(content, &resolved), "one line\nother line\n");
+    }
+
+    #[test]
+    fn keep_both_with_empty_side_keeps_the_other() {
+        let content = "<<<<<<< HEAD\nkept\n=======\n>>>>>>> topic\n";
+        let resolved = block_at(content, 2).resolve(ConflictSide::Both);
+
+        assert_eq!(resolved.replacement, "kept\n");
+        assert_eq!(apply_resolution(content, &resolved), "kept\n");
+    }
+
+    #[test]
+    fn keep_both_block_at_eof_without_trailing_newline() {
+        let content = "pre\n<<<<<<< H\na\n=======\nb\n>>>>>>> t";
+        let resolved = block_at(content, 3).resolve(ConflictSide::Both);
+
+        assert_eq!(resolved.replacement, "a\nb\n");
+        assert_eq!(apply_resolution(content, &resolved), "pre\na\nb\n");
     }
 
     #[test]

@@ -4,6 +4,5 @@
     <file preprocess="xml-stripblanks">window.ui</file>
     <file preprocess="xml-stripblanks">shortcuts-dialog.ui</file>
     <file alias="icons/scalable/actions/folder-visiting-symbolic.svg">icons/folder-visiting-symbolic.svg</file>
-    <file alias="icons/scalable/actions/cloud-deploy-symbolic.svg">icons/cloud-deploy-symbolic.svg</file>
   </gresource>
 </gresources>

@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use gtk::glib::subclass::prelude::ObjectSubclassIsExt;
 
 use crate::engine::{
-    ConnectResult, EngineMock, EntryRecord, EntrySnapshot, EntrySummary, JournalHandle,
-    JournalStatus, SyncOutcome,
+    ConnectResult, EngineMock, EngineOpError, EntryRecord, EntrySnapshot, EntrySummary,
+    JournalHandle, JournalStatus, SyncOutcome,
 };
 use crate::window::PennaFrontendWindow;
 
@@ -28,6 +28,16 @@ pub fn connect_journal(
     engine_guard(window).connect_journal(repo_path)
 }
 
+/// Clone a journal from a remote; see [`EngineMock::clone_journal`].
+pub fn clone_journal(
+    window: &PennaFrontendWindow,
+    remote_url: &str,
+    local_parent_dir: &str,
+    directory_name: &str,
+) -> Result<ConnectResult, EngineOpError> {
+    engine_guard(window).clone_journal(remote_url, local_parent_dir, directory_name)
+}
+
 /// Latest journal status, or `None` when the handle is not connected.
 pub fn journal_status(
     window: &PennaFrontendWindow,
@@ -37,11 +47,23 @@ pub fn journal_status(
 }
 
 /// Fetch + push + merge through the engine (ADR 0014 flow).
+///
+/// Returns [`EngineOpError`] so the caller can react to a structured
+/// `AuthRequired` (prompt for a credential) instead of only a message string.
 pub fn sync_journal(
     window: &PennaFrontendWindow,
     handle: JournalHandle,
-) -> Result<SyncOutcome, String> {
+) -> Result<SyncOutcome, EngineOpError> {
     engine_guard(window).sync_journal(handle)
+}
+
+/// Store a credential for `remote_url` in the platform secret store.
+pub fn store_credential(
+    window: &PennaFrontendWindow,
+    remote_url: &str,
+    token: &str,
+) -> Result<(), String> {
+    engine_guard(window).store_credential(remote_url, token)
 }
 
 /// Entry ids with unresolved index conflicts per the latest status.

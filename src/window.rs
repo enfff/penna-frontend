@@ -32,8 +32,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::conflict::{
-    conflict_block_at_line, conflict_style_char_ranges, unresolved_conflict_count, ConflictBlock,
-    ConflictSide, ConflictSpanKind,
+    conflict_block_at_line, conflict_blocks, conflict_style_spans,
+    unresolved_conflict_count, ConflictBlock, ConflictSide, ConflictSpanKind,
 };
 use crate::editor;
 use crate::editor::{
@@ -43,7 +43,8 @@ use crate::editor::{
     TAG_STRIKETHROUGH, TAG_SYNTAX,
 };
 use crate::engine::{
-    EngineMock, EntrySnapshot, EntrySummary, JournalHandle, JournalKind, SyncOutcome,
+    ConnectResult, EngineMock, EngineOpError, EntrySnapshot, EntrySummary, JournalHandle,
+    JournalKind, SyncOutcome,
 };
 use crate::format;
 use crate::gestures;
@@ -55,6 +56,7 @@ const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
+const ACTION_CONFLICT_ACCEPT_BOTH: &str = "conflict-accept-both";
 
 struct CheckboxItem {
     marker_len: usize,
@@ -87,6 +89,8 @@ mod imp {
         #[template_child]
         pub connect_button: TemplateChild<gtk::Button>,
         #[template_child]
+        pub clone_button: TemplateChild<gtk::Button>,
+        #[template_child]
         pub setup_status_label: TemplateChild<gtk::Label>,
         #[template_child]
         pub sync_status_label: TemplateChild<gtk::Label>,
@@ -114,6 +118,8 @@ mod imp {
         pub back_to_grid_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
+        #[template_child]
+        pub conflict_banner: TemplateChild<adw::Banner>,
 
         pub engine: Arc<Mutex<EngineMock>>,
         pub current_handle: RefCell<Option<JournalHandle>>,
@@ -133,6 +139,8 @@ mod imp {
         pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
         pub modified: RefCell<bool>,
+        pub conflict_widgets: RefCell<Vec<gtk::Box>>,
+        pub conflicted_entry_ids: RefCell<Vec<String>>,
     }
 
     impl Default for PennaFrontendWindow {
@@ -145,6 +153,7 @@ mod imp {
                 notes_page: TemplateChild::default(),
                 editor_page: TemplateChild::default(),
                 connect_button: TemplateChild::default(),
+                clone_button: TemplateChild::default(),
                 setup_status_label: TemplateChild::default(),
                 sync_status_label: TemplateChild::default(),
                 notes_search_revealer: TemplateChild::default(),
@@ -159,6 +168,7 @@ mod imp {
                 main_menu_button: TemplateChild::default(),
                 back_to_grid_button: TemplateChild::default(),
                 toast_overlay: TemplateChild::default(),
+                conflict_banner: TemplateChild::default(),
                 engine: Arc::new(Mutex::new(EngineMock::default())),
                 current_handle: RefCell::default(),
                 current_entry_id: RefCell::default(),
@@ -177,6 +187,8 @@ mod imp {
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
+                conflict_widgets: RefCell::default(),
+                conflicted_entry_ids: RefCell::default(),
             }
         }
     }
@@ -351,6 +363,17 @@ impl PennaFrontendWindow {
         ));
         accept_incoming_conflict.set_enabled(false);
         self.add_action(&accept_incoming_conflict);
+
+        let accept_both_conflict = gio::SimpleAction::new(ACTION_CONFLICT_ACCEPT_BOTH, None);
+        accept_both_conflict.connect_activate(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, _| {
+                window.accept_conflict(ConflictSide::Both);
+            }
+        ));
+        accept_both_conflict.set_enabled(false);
+        self.add_action(&accept_both_conflict);
 
         let wrap_bold = gio::SimpleAction::new("wrap-bold", None);
         wrap_bold.connect_activate(glib::clone!(
@@ -533,6 +556,13 @@ impl PennaFrontendWindow {
             }
         ));
 
+        imp.clone_button.connect_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                window.open_clone_dialog();
+            }
+        ));
 
         imp.notes_empty_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
@@ -555,6 +585,14 @@ impl PennaFrontendWindow {
             self,
             move |_| {
                 editor::toggle_viewer_mode(&window);
+            }
+        ));
+
+        imp.conflict_banner.connect_button_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_| {
+                window.review_conflict();
             }
         ));
 
@@ -592,6 +630,7 @@ impl PennaFrontendWindow {
             Some(&i18n::accept_incoming_label()),
             Some("win.conflict-accept-incoming"),
         );
+        conflict_menu.append(Some(&i18n::accept_both_label()), Some("win.conflict-accept-both"));
         imp.editor_view.set_extra_menu(Some(&conflict_menu));
 
         imp.notes_search_entry.connect_search_changed(glib::clone!(
@@ -1173,39 +1212,50 @@ impl PennaFrontendWindow {
 
         match connect_result {
             Ok(result) => {
-                *imp.current_handle.borrow_mut() = Some(result.journal_handle);
-
-                let _ =
-                    settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, &repo_path);
-
                 let sync_message = match result.journal_kind {
                     JournalKind::New => "New diary initialized and connected",
                     JournalKind::Existing => "Existing journal connected",
                 };
-
                 let details = format!(
                     "{sync_message} | branch: {} | capabilities: {}",
                     result.current_branch,
                     result.capabilities.join(", ")
                 );
-                imp.sync_status_label.set_label(&details);
-                imp.setup_status_label.set_label(&details);
-
-                grid::refresh_notes_grid(self);
-                self.start_repo_watchers();
-                self.show_main_page();
-                self.show_grid_view();
-
-                // Product flow: an already-connected session immediately
-                // runs the update flow; a fresh diary has nothing to sync.
-                if result.journal_kind == JournalKind::Existing {
-                    self.run_sync_flow();
-                }
+                // A fresh diary has nothing to sync; an existing one immediately
+                // runs the update flow against its remote.
+                let run_initial_sync = result.journal_kind == JournalKind::Existing;
+                self.apply_connected_journal(&result, &details, run_initial_sync);
             }
             Err(err) => {
                 imp.setup_status_label.set_label(&err);
                 imp.sync_status_label.set_label(&err);
             }
+        }
+    }
+
+    /// Shared post-connect steps for both the connect and clone flows: register
+    /// the handle, persist the repository path, update the status labels,
+    /// refresh the grid, start the watchers, and show the main page.
+    /// `run_initial_sync` triggers the update flow for a session that already
+    /// has a remote to reconcile against.
+    fn apply_connected_journal(
+        &self,
+        result: &ConnectResult,
+        status_text: &str,
+        run_initial_sync: bool,
+    ) {
+        let imp = self.imp();
+        *imp.current_handle.borrow_mut() = Some(result.journal_handle);
+        let _ =
+            settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, &result.repo_path);
+        imp.sync_status_label.set_label(status_text);
+        imp.setup_status_label.set_label(status_text);
+        grid::refresh_notes_grid(self);
+        self.start_repo_watchers();
+        self.show_main_page();
+        self.show_grid_view();
+        if run_initial_sync {
+            self.run_sync_flow();
         }
     }
 
@@ -1221,14 +1271,142 @@ impl PennaFrontendWindow {
 
         match outcome {
             Ok(outcome) => self.handle_sync_outcome(&outcome),
+            Err(EngineOpError::AuthRequired { remote_url }) => {
+                self.prompt_for_credential(&remote_url, |window| window.run_sync_flow())
+            }
             Err(err) => {
+                let message = err.to_display_string();
                 imp.sync_status_label
-                    .set_label(&i18n::sync_failed(&err));
-                let toast = adw::Toast::new(&i18n::sync_failed(&err));
+                    .set_label(&i18n::sync_failed(&message));
+                let toast = adw::Toast::new(&i18n::sync_failed(&message));
                 toast.set_priority(adw::ToastPriority::High);
                 imp.toast_overlay.add_toast(toast);
             }
         }
+    }
+
+    /// When the engine reports that `remote_url` needs a credential, prompt the
+    /// user for it, store it in the platform secret store, then re-run
+    /// `on_stored`. Cancelling (or closing the prompt) does nothing, leaving
+    /// the failed status in place.
+    fn prompt_for_credential(
+        &self,
+        remote_url: &str,
+        on_stored: impl FnOnce(&PennaFrontendWindow) + 'static,
+    ) {
+        let for_display = remote_url.to_string();
+        let for_closure = remote_url.to_string();
+        self.prompt_for_token(
+            &for_display,
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |token: Option<String>| {
+                    let Some(token) = token else {
+                        return;
+                    };
+                    let _ = sync::store_credential(&window, &for_closure, &token);
+                    on_stored(&window);
+                }
+            ),
+        );
+    }
+
+    /// Modal prompt for a credential (e.g. an HTTPS token / personal access
+    /// token) for `remote_url`. Invokes `on_done` exactly once with the entered
+    /// token, or `None` if the user cancels, leaves it blank, or closes the
+    /// window.
+    fn prompt_for_token(&self, remote_url: &str, on_done: impl FnOnce(Option<String>) + 'static) {
+        let dialog = adw::Dialog::new();
+        dialog.set_title(&i18n::auth_required_title());
+        dialog.set_content_width(460);
+        dialog.set_content_height(230);
+
+        let toolbar = adw::ToolbarView::new();
+        let header = adw::HeaderBar::new();
+        header.add_css_class("flat");
+        header.set_title_widget(Some(&adw::WindowTitle::new(
+            i18n::auth_required_title().as_str(),
+            "",
+        )));
+        toolbar.add_top_bar(&header);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        toolbar.set_content(Some(&content));
+        dialog.set_child(Some(&toolbar));
+
+        let hint = gtk::Label::new(Some(&i18n::auth_hint()));
+        hint.set_wrap(true);
+        hint.set_halign(gtk::Align::Start);
+        content.append(&hint);
+
+        let url_label = gtk::Label::new(Some(remote_url));
+        url_label.set_wrap(true);
+        url_label.set_halign(gtk::Align::Start);
+        url_label.add_css_class("dim-label");
+        url_label.set_selectable(true);
+        content.append(&url_label);
+
+        let entry = gtk::Entry::new();
+        entry.set_visibility(false);
+        entry.set_placeholder_text(Some(i18n::token_placeholder().as_str()));
+        content.append(&entry);
+
+        let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        buttons.set_halign(gtk::Align::End);
+        let cancel_button = gtk::Button::with_label(i18n::cancel().as_str());
+        let save_button = gtk::Button::with_label(i18n::save_token().as_str());
+        save_button.add_css_class("suggested-action");
+        buttons.append(&cancel_button);
+        buttons.append(&save_button);
+        content.append(&buttons);
+
+        // The buttons record the entered token; the one-shot `on_done` (boxed,
+        // because the `closed` handler is an `Fn` closure) is consumed exactly
+        // once when the dialog closes via `RefCell::take`. Left unset (window
+        // closed directly) there is no decision, so `on_done` never runs.
+        let decision = Rc::new(RefCell::new(None::<Option<String>>));
+        type TokenOnDoneCell = Rc<RefCell<Option<Box<dyn FnOnce(Option<String>)>>>>;
+        let on_done_cell: TokenOnDoneCell =
+            Rc::new(RefCell::new(Some(Box::new(on_done))));
+
+        let decision_save = decision.clone();
+        let entry_save = entry.clone();
+        let dialog_save = dialog.clone();
+        save_button.connect_clicked(move |_| {
+            let text = entry_save.text().to_string();
+            let token = if text.trim().is_empty() {
+                None
+            } else {
+                Some(text)
+            };
+            *decision_save.borrow_mut() = Some(token);
+            dialog_save.close();
+        });
+
+        let decision_cancel = decision.clone();
+        let dialog_cancel = dialog.clone();
+        cancel_button.connect_clicked(move |_| {
+            *decision_cancel.borrow_mut() = Some(None);
+            dialog_cancel.close();
+        });
+
+        let decision_done = decision.clone();
+        let on_done_done = on_done_cell.clone();
+        dialog.connect_closed(move |_| {
+            if let Some(token) = decision_done.borrow_mut().take() {
+                if let Some(callback) = on_done_done.borrow_mut().take() {
+                    callback(token);
+                }
+            }
+        });
+
+        dialog.present(Some(self));
+        entry.grab_focus();
     }
 
     fn handle_sync_outcome(&self, outcome: &SyncOutcome) {
@@ -1238,11 +1416,32 @@ impl PennaFrontendWindow {
         let message = sync_status_message(outcome);
         imp.sync_status_label.set_label(&message);
 
-        if !outcome.conflicted_entry_ids.is_empty() {
-            let count = outcome.conflicted_entry_ids.len();
-            let toast = adw::Toast::new(&sync_conflict_toast_message(count));
-            toast.set_priority(adw::ToastPriority::High);
-            imp.toast_overlay.add_toast(toast);
+        self.set_conflict_banner(&outcome.conflicted_entry_ids);
+    }
+
+    /// Persistent conflict notice: the banner stays revealed while any entry
+    /// still has an unresolved index conflict, with a button that jumps to the
+    /// first one. Replaces the transient "conflicts found" toast.
+    pub(crate) fn set_conflict_banner(&self, entry_ids: &[String]) {
+        let imp = self.imp();
+        if entry_ids.is_empty() {
+            imp.conflicted_entry_ids.borrow_mut().clear();
+            imp.conflict_banner.set_revealed(false);
+            return;
+        }
+        imp.conflicted_entry_ids.replace(entry_ids.to_vec());
+        imp.conflict_banner
+            .set_title(&i18n::conflicts_pending(entry_ids.len()));
+        imp.conflict_banner
+            .set_button_label(Some(&i18n::conflict_review_action()));
+        imp.conflict_banner.set_revealed(true);
+    }
+
+    /// Opens the first still-conflicted note so the user can resolve it.
+    pub(crate) fn review_conflict(&self) {
+        let first = self.imp().conflicted_entry_ids.borrow().first().cloned();
+        if let Some(id) = first {
+            self.open_entry(&id);
         }
     }
 
@@ -1271,9 +1470,14 @@ impl PennaFrontendWindow {
                 imp.toast_overlay.add_toast(toast);
             }
             Ok(_) => {}
+            Err(EngineOpError::AuthRequired { remote_url }) => {
+                self.prompt_for_credential(&remote_url, |window| {
+                    window.maybe_conclude_merge()
+                })
+            }
             Err(err) => imp
                 .sync_status_label
-                .set_label(&i18n::sync_failed(&err)),
+                .set_label(&i18n::sync_failed(&err.to_display_string())),
         }
     }
 
@@ -1350,6 +1554,7 @@ impl PennaFrontendWindow {
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
         *imp.current_entry_tags.borrow_mut() = entry.tags.clone();
         self.update_window_title(Some(entry_id));
+        self.clear_conflict_widgets();
         imp.editor_view.buffer().set_text(&entry.content);
         // Loading content fires the change handler above; the freshly loaded
         // note is by definition saved.
@@ -1357,6 +1562,7 @@ impl PennaFrontendWindow {
         editor::apply_editor_mode(self);
         self.apply_markdown_styling();
         self.show_editor_view();
+        self.refresh_conflict_widgets();
     }
 
     fn save_current_entry(&self) {
@@ -1434,11 +1640,13 @@ impl PennaFrontendWindow {
         *imp.current_entry_id.borrow_mut() = Some(record.entry_id.clone());
         *imp.current_entry_tags.borrow_mut() = record.tags.clone();
         self.update_window_title(Some(&record.entry_id));
+        self.clear_conflict_widgets();
         imp.editor_view.buffer().set_text(&record.content);
         self.set_entry_modified(false);
         editor::apply_editor_mode(self);
         self.apply_markdown_styling();
         self.show_editor_view();
+        self.refresh_conflict_widgets();
         grid::refresh_notes_grid(self);
     }
 
@@ -1529,6 +1737,178 @@ impl PennaFrontendWindow {
         ));
 
         imp.toast_overlay.add_toast(toast);
+    }
+
+    /// Entry point for the "From a server" option (welcome page and settings):
+    /// open a modal to enter a repository URL and a destination folder, then
+    /// clone it into the app.
+    pub fn open_clone_dialog(&self) {
+        let dialog = adw::Dialog::new();
+        dialog.set_title(&i18n::clone_journal_title());
+        dialog.set_content_width(520);
+        dialog.set_content_height(380);
+
+        let toolbar = adw::ToolbarView::new();
+        let header = adw::HeaderBar::new();
+        header.add_css_class("flat");
+        header.set_title_widget(Some(&adw::WindowTitle::new(
+            i18n::clone_journal_title().as_str(),
+            "",
+        )));
+        let cancel_button = gtk::Button::with_label(i18n::cancel().as_str());
+        header.pack_start(&cancel_button);
+        let clone_button = gtk::Button::with_label(i18n::clone_action_label().as_str());
+        clone_button.add_css_class("suggested-action");
+        header.pack_end(&clone_button);
+        toolbar.add_top_bar(&header);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        toolbar.set_content(Some(&content));
+        dialog.set_child(Some(&toolbar));
+
+        let home_str = glib::home_dir().as_path().to_string_lossy().to_string();
+
+        let url_label = gtk::Label::new(Some(&i18n::clone_url_label()));
+        url_label.set_halign(gtk::Align::Start);
+        content.append(&url_label);
+
+        let url_entry = gtk::Entry::new();
+        url_entry.set_placeholder_text(Some(i18n::clone_url_placeholder().as_str()));
+        url_entry.set_hexpand(true);
+        content.append(&url_entry);
+
+        let save_to_label = gtk::Label::new(Some(&i18n::clone_save_to_label()));
+        save_to_label.set_halign(gtk::Align::Start);
+        content.append(&save_to_label);
+
+        let dest_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        dest_box.set_hexpand(true);
+        let dest_label = gtk::Label::new(Some(&home_str));
+        dest_label.set_wrap(true);
+        dest_label.set_selectable(true);
+        dest_label.set_hexpand(true);
+        dest_label.set_halign(gtk::Align::Start);
+        dest_box.append(&dest_label);
+        let dest_browse = gtk::Button::with_label(i18n::browse_label().as_str());
+        dest_box.append(&dest_browse);
+        content.append(&dest_box);
+
+        let status_label = gtk::Label::new(None);
+        status_label.set_wrap(true);
+        status_label.set_halign(gtk::Align::Start);
+        content.append(&status_label);
+
+        let parent_dir = Rc::new(RefCell::new(home_str));
+
+        // Browse: pick the parent folder the clone will be created under.
+        dest_browse.connect_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong]
+            parent_dir,
+            move |_btn| {
+                let dest_label_click = dest_label.clone();
+                let picker = gtk::FileDialog::builder()
+                    .title(i18n::choose_clone_destination().as_str())
+                    .accept_label("Select")
+                    .modal(true)
+                    .build();
+                picker.select_folder(
+                    Some(&window),
+                    None::<&gio::Cancellable>,
+                    glib::clone!(
+                        #[strong]
+                        parent_dir,
+                        move |result| {
+                            if let Ok(file) = result {
+                                if let Some(path) = file.path() {
+                                    let chosen = path.to_string_lossy().to_string();
+                                    *parent_dir.borrow_mut() = chosen.clone();
+                                    dest_label_click.set_text(&chosen);
+                                }
+                            }
+                        }
+                    ),
+                );
+            }
+        ));
+
+        let dialog_for_cancel = dialog.clone();
+        cancel_button.connect_clicked(move |_| {
+            dialog_for_cancel.close();
+        });
+
+        let dialog_for_clone = dialog.clone();
+        clone_button.connect_clicked(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong]
+            parent_dir,
+            move |_btn| {
+                let url = url_entry.text().to_string();
+                if url.trim().is_empty() {
+                    status_label.set_text(&i18n::clone_url_required());
+                    return;
+                }
+                let parent = parent_dir.borrow().clone();
+                let dir_name = PennaFrontendWindow::repo_name_from_url(&url);
+                dialog_for_clone.close();
+                window.run_clone_flow(url, parent, dir_name);
+            }
+        ));
+
+        dialog.present(Some(self));
+    }
+
+    /// Clone flow: clone from `remote_url` into `parent_dir/dir_name`. On a
+    /// `CredentialsRequired` failure, prompt for a token, store it, and retry.
+    /// On success, wire the new journal into the window like a fresh connect
+    /// (no initial sync — a clone is already in sync with its remote).
+    fn run_clone_flow(&self, remote_url: String, parent_dir: String, dir_name: String) {
+        let result = sync::clone_journal(self, &remote_url, &parent_dir, &dir_name);
+        match result {
+            Ok(result) => {
+                let details = format!(
+                    "{} | branch: {}",
+                    i18n::cloned_connected(&remote_url),
+                    result.current_branch
+                );
+                self.apply_connected_journal(&result, &details, false);
+            }
+            Err(EngineOpError::AuthRequired { remote_url: auth_url }) => {
+                self.prompt_for_credential(&auth_url, move |window| {
+                    window.run_clone_flow(remote_url, parent_dir, dir_name);
+                });
+            }
+            Err(err) => {
+                let message = err.to_display_string();
+                let imp = self.imp();
+                let toast = adw::Toast::new(&i18n::clone_failed(&message));
+                toast.set_priority(adw::ToastPriority::High);
+                imp.toast_overlay.add_toast(toast);
+            }
+        }
+    }
+
+    /// Derive a clone-target folder name from a repository URL: the last
+    /// non-empty path segment with a trailing `.git` stripped.
+    fn repo_name_from_url(url: &str) -> String {
+        let trimmed = url.trim();
+        let tail = trimmed
+            .rsplit_once("://")
+            .map(|(_, rest)| rest)
+            .unwrap_or(trimmed);
+        let last = tail.rsplit('/').next().unwrap_or(trimmed);
+        let name = last.strip_suffix(".git").unwrap_or(last);
+        if name.is_empty() {
+            "diary".to_string()
+        } else {
+            name.to_string()
+        }
     }
 
     fn choose_repo_folder(&self) {
@@ -2311,14 +2691,36 @@ impl PennaFrontendWindow {
     }
 
     fn apply_conflict_styling(buffer: &gtk::TextBuffer, text: &str) {
-        for range in conflict_style_char_ranges(text) {
-            let tag_name = match range.kind {
+        // Apply per line through iterators, not absolute char offsets: the
+        // inline resolution buttons are child anchors occupying buffer
+        // positions, which shifts every character after them relative to the
+        // plain `text` we parsed from.
+        for span in conflict_style_spans(text) {
+            let tag_name = match span.kind {
                 ConflictSpanKind::CurrentLines => TAG_CONFLICT_CURRENT,
                 ConflictSpanKind::IncomingLines => TAG_CONFLICT_INCOMING,
                 ConflictSpanKind::MarkerLine => TAG_CONFLICT_MARKER,
             };
-            Self::apply_tag_by_offset(buffer, tag_name, range.start_char, range.end_char);
+            for line in span.start_line..span.end_line {
+                if let Ok(line_no) = i32::try_from(line) {
+                    Self::apply_tag_to_line(buffer, tag_name, line_no);
+                }
+            }
         }
+    }
+
+    /// Applies `tag_name` across a whole line — from its first character up to
+    /// (excluding) the line break — using the buffer's own line structure so
+    /// that child anchors cannot skew the covered range.
+    fn apply_tag_to_line(buffer: &gtk::TextBuffer, tag_name: &str, line_no: i32) {
+        let Some(start) = buffer.iter_at_line(line_no) else {
+            return;
+        };
+        let Some(mut end) = buffer.iter_at_line(line_no) else {
+            return;
+        };
+        end.forward_to_line_end();
+        buffer.apply_tag_by_name(tag_name, &start, &end);
     }
 
     /// Enables "Accept Current"/"Accept Incoming" exactly while the caret
@@ -2332,6 +2734,7 @@ impl PennaFrontendWindow {
         for name in [
             ACTION_CONFLICT_ACCEPT_CURRENT,
             ACTION_CONFLICT_ACCEPT_INCOMING,
+            ACTION_CONFLICT_ACCEPT_BOTH,
         ] {
             if let Some(action) = self
                 .lookup_action(name)
@@ -2392,8 +2795,172 @@ impl PennaFrontendWindow {
         let message = match side {
             ConflictSide::Current => i18n::accepted_current_changes(),
             ConflictSide::Incoming => i18n::accepted_incoming_changes(),
+            ConflictSide::Both => i18n::accepted_both_changes(),
         };
         imp.sync_status_label.set_label(&message);
+    }
+
+    /// Replaces the inline resolution buttons with a fresh set, one per
+    /// unresolved conflict block currently in the buffer.
+    ///
+    /// Each block gets two zero-width child anchors: a "This device" button at
+    /// the end of its current side's last line and an "Other device" button at
+    /// the end of its incoming side's last line, so each tinted block is
+    /// self-contained. Editing the text (the third way) leaves the buttons in
+    /// place while the tinted tags reflow around the cursor.
+    /// Anchors and widgets are cleared on `set_text`, so this is only called
+    /// when a note is opened, the editor mode changes, or a block is resolved —
+    /// never on a keystroke.
+    pub(crate) fn refresh_conflict_widgets(&self) {
+        self.clear_conflict_widgets();
+
+        let imp = self.imp();
+        if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        let buffer = imp.editor_view.buffer();
+        let (start, end) = buffer.bounds();
+        let text = buffer.text(&start, &end, true).to_string();
+        let blocks = conflict_blocks(&text);
+
+        for (index, block) in blocks.iter().enumerate() {
+            let current_button = gtk::Button::with_label(&i18n::conflict_this_device_label());
+            current_button.add_css_class("flat");
+            current_button.add_css_class("conflict-current-button");
+            current_button.connect_clicked(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_| window.resolve_conflict_at_index(index, ConflictSide::Current)
+            ));
+            self.attach_conflict_button(block.current_anchor_line, &current_button);
+
+            let both_button = gtk::Button::with_label(&i18n::conflict_keep_both_label());
+            both_button.add_css_class("flat");
+            both_button.add_css_class("conflict-both-button");
+            both_button.connect_clicked(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_| window.resolve_conflict_at_index(index, ConflictSide::Both)
+            ));
+            self.attach_conflict_button(block.separator_anchor_line, &both_button);
+
+            let incoming_button = gtk::Button::with_label(&i18n::conflict_other_device_label());
+            incoming_button.add_css_class("flat");
+            incoming_button.add_css_class("conflict-incoming-button");
+            incoming_button.connect_clicked(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_| window.resolve_conflict_at_index(index, ConflictSide::Incoming)
+            ));
+            self.attach_conflict_button(block.incoming_anchor_line, &incoming_button);
+        }
+    }
+
+    /// Removes every anchored resolution button from the view and clears the
+    /// tracking list. Call this before mutating the buffer: deleting a range
+    /// that still holds our child anchors makes GTK remove the child
+    /// mid-mutation, which queries the selection bounds on a half-deleted
+    /// buffer and segfaults.
+    fn clear_conflict_widgets(&self) {
+        let imp = self.imp();
+        for holder in imp.conflict_widgets.borrow().iter() {
+            imp.editor_view.remove(holder);
+        }
+        imp.conflict_widgets.borrow_mut().clear();
+    }
+
+    /// Anchors `button` to the end of `line` via a zero-width child anchor,
+    /// wrapping it in the shared resolution-holder styling and tracking it in
+    /// `conflict_widgets` so the next refresh can remove it.
+    fn attach_conflict_button(&self, line: usize, button: &gtk::Button) {
+        // The buttons sit inside the text view, which otherwise shows its
+        // insertion (I-beam) cursor over them; keep the plain arrow instead.
+        button.set_cursor_from_name(Some("default"));
+        let imp = self.imp();
+        let buffer = imp.editor_view.buffer();
+        let Ok(line_no) = i32::try_from(line) else {
+            return;
+        };
+        let Some(mut iter) = buffer.iter_at_line(line_no) else {
+            return;
+        };
+        iter.forward_to_line_end();
+        let anchor = buffer.create_child_anchor(&mut iter);
+
+        let holder = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        holder.add_css_class("conflict-resolve");
+        holder.set_margin_start(8);
+        holder.append(button);
+        imp.editor_view.add_child_at_anchor(&holder, &anchor);
+        imp.conflict_widgets.borrow_mut().push(holder);
+    }
+
+    /// Resolves the `index`-th unresolved conflict block, keeping `side`'s
+    /// lines, then restyles and re-lays-out the remaining resolution buttons.
+    fn resolve_conflict_at_index(&self, index: usize, side: ConflictSide) {
+        // Resolve off the button's own `clicked` callback: the final widget
+        // refresh drops the last ref to the clicked button, and freeing a
+        // widget whose signal is still on the stack crashes. Deferring to the
+        // next main-loop tick lets `clicked` unwind first.
+        glib::idle_add_local_once(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move || {
+                window.apply_conflict_resolution(index, side);
+            },
+        ));
+    }
+
+    fn apply_conflict_resolution(&self, index: usize, side: ConflictSide) {
+        let imp = self.imp();
+        if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
+            return;
+        }
+
+        // Detach the buttons before touching the buffer so the delete below
+        // never destroys a child anchor mid-mutation (see clear_conflict_widgets).
+        self.clear_conflict_widgets();
+
+        let buffer = imp.editor_view.buffer();
+        let (start, end) = buffer.bounds();
+        let text = buffer.text(&start, &end, true).to_string();
+        let Some(block) = conflict_blocks(&text).into_iter().nth(index) else {
+            return;
+        };
+        let resolution = block.resolve(side);
+
+        let Ok(start_line) = i32::try_from(resolution.start_line) else {
+            return;
+        };
+        let Some(mut delete_start) = buffer.iter_at_line(start_line) else {
+            return;
+        };
+        // A block ending on the last line has no following line to start
+        // from; deleting through the end iterator then covers it.
+        let mut delete_end = if resolution.end_line >= buffer.line_count().max(0) as usize {
+            buffer.end_iter()
+        } else {
+            buffer
+                .iter_at_line(resolution.end_line as i32)
+                .unwrap_or_else(|| buffer.end_iter())
+        };
+        buffer.delete(&mut delete_start, &mut delete_end);
+
+        if !resolution.replacement.is_empty() {
+            let mut insert_iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut insert_iter, &resolution.replacement);
+        }
+
+        let message = match side {
+            ConflictSide::Current => i18n::accepted_current_changes(),
+            ConflictSide::Incoming => i18n::accepted_incoming_changes(),
+            ConflictSide::Both => i18n::accepted_both_changes(),
+        };
+        imp.sync_status_label.set_label(&message);
+
+        self.apply_markdown_styling();
+        self.refresh_conflict_widgets();
     }
 
     fn parse_heading(line: &str) -> Option<(usize, usize)> {
@@ -2817,10 +3384,6 @@ fn sync_status_message(outcome: &SyncOutcome) -> String {
     }
 }
 
-fn sync_conflict_toast_message(count: usize) -> String {
-    i18n::conflicts_pending(count)
-}
-
 #[cfg(test)]
 mod sync_message_tests {
     use super::*;
@@ -2883,18 +3446,6 @@ mod sync_message_tests {
         assert_eq!(
             sync_status_message(&outcome("reconciled", &[])),
             "Sync state: reconciled"
-        );
-    }
-
-    #[test]
-    fn toast_message_pluralizes() {
-        assert_eq!(
-            sync_conflict_toast_message(1),
-            "1 note needs conflict resolution"
-        );
-        assert_eq!(
-            sync_conflict_toast_message(3),
-            "3 notes need conflict resolution"
         );
     }
 }

@@ -54,6 +54,7 @@ pub enum JournalKind {
 #[derive(Debug)]
 pub struct ConnectResult {
     pub journal_handle: JournalHandle,
+    pub repo_path: String,
     pub capabilities: Vec<String>,
     pub current_branch: String,
     pub journal_kind: JournalKind,
@@ -87,6 +88,41 @@ pub struct SyncOutcome {
     pub ahead: Option<usize>,
     pub behind: Option<usize>,
     pub conflicted_entry_ids: Vec<String>,
+}
+
+/// Errors surfaced to the UI from a sync/credential operation.
+///
+/// `AuthRequired` is the structured signal that the engine could not
+/// authenticate to `remote_url` and needs a credential; every other engine
+/// failure is collapsed into a display string in the `Other` arm.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EngineOpError {
+    AuthRequired { remote_url: String },
+    Other(String),
+}
+
+impl EngineOpError {
+    fn from_engine(err: penna_engine::EngineError) -> Self {
+        // Purely contractual (ADR 0009, extended by ADR 0015): switch on the
+        // stable error code, never on the `EngineError` variant shape.
+        let dto = err.to_dto();
+        if dto.code == "AUTH_REQUIRED" {
+            return Self::AuthRequired {
+                remote_url: dto.auth_remote.unwrap_or_default(),
+            };
+        }
+        Self::Other(dto.message)
+    }
+
+    /// Human-readable message for status labels and toasts.
+    pub fn to_display_string(&self) -> String {
+        match self {
+            Self::AuthRequired { remote_url } => {
+                format!("authentication required for remote {remote_url}")
+            }
+            Self::Other(message) => message.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -132,7 +168,7 @@ impl EngineMock {
             handle.0,
             SessionState {
                 session_id: session.session_id.clone(),
-                repo_path: PathBuf::from(session.repo_path),
+                repo_path: PathBuf::from(session.repo_path.clone()),
             },
         );
 
@@ -143,21 +179,73 @@ impl EngineMock {
 
         Ok(ConnectResult {
             journal_handle: handle,
-            capabilities: vec![
-                "list_entries".to_string(),
-                "get_entry".to_string(),
-                "create_entry".to_string(),
-                "update_entry".to_string(),
-                "delete_entry".to_string(),
-                "sync_journal".to_string(),
-                "list_tags".to_string(),
-                "add_tag".to_string(),
-                "remove_tag".to_string(),
-                "sidecar_integrity_status".to_string(),
-            ],
+            repo_path: session.repo_path,
+            capabilities: Self::journal_capabilities(),
             current_branch: status.branch.unwrap_or_else(|| "main".to_string()),
             journal_kind,
         })
+    }
+
+    /// Clone a journal from `remote_url` into `local_parent_dir/directory_name`.
+    ///
+    /// Returns a connected session. A clone is already in sync with its remote,
+    /// so the resulting kind is [`JournalKind::New`] and the caller must not run
+    /// an initial sync. Errors are surfaced as [`EngineOpError`] so a
+    /// `CredentialsRequired` can be answered with a token and retried.
+    pub fn clone_journal(
+        &mut self,
+        remote_url: &str,
+        local_parent_dir: &str,
+        directory_name: &str,
+    ) -> Result<ConnectResult, EngineOpError> {
+        let request = penna_engine::CloneJournalRequest {
+            remote_url: remote_url.to_string(),
+            local_parent_dir: local_parent_dir.to_string(),
+            directory_name: directory_name.to_string(),
+        };
+        let session = self
+            .engine
+            .clone_journal(request)
+            .map_err(EngineOpError::from_engine)?;
+
+        self.next_handle += 1;
+        let handle = JournalHandle(self.next_handle);
+        self.sessions.insert(
+            handle.0,
+            SessionState {
+                session_id: session.session_id.clone(),
+                repo_path: PathBuf::from(session.repo_path.clone()),
+            },
+        );
+
+        let status = self
+            .engine
+            .journal_status(&session.session_id)
+            .map_err(EngineOpError::from_engine)?;
+
+        Ok(ConnectResult {
+            journal_handle: handle,
+            repo_path: session.repo_path,
+            capabilities: Self::journal_capabilities(),
+            current_branch: status.branch.unwrap_or_else(|| "main".to_string()),
+            journal_kind: JournalKind::New,
+        })
+    }
+
+    /// The journal operations the app exposes, shared by connect and clone.
+    fn journal_capabilities() -> Vec<String> {
+        vec![
+            "list_entries".to_string(),
+            "get_entry".to_string(),
+            "create_entry".to_string(),
+            "update_entry".to_string(),
+            "delete_entry".to_string(),
+            "sync_journal".to_string(),
+            "list_tags".to_string(),
+            "add_tag".to_string(),
+            "remove_tag".to_string(),
+            "sidecar_integrity_status".to_string(),
+        ]
     }
 
     pub fn journal_status(&self, handle: JournalHandle) -> Option<JournalStatus> {
@@ -180,16 +268,16 @@ impl EngineMock {
     /// starts a real git merge (working tree receives conflict markers) and
     /// reports the still-conflicted entries; once everything is resolved and
     /// staged, this same call concludes the merge (ADR 0014).
-    pub fn sync_journal(&self, handle: JournalHandle) -> Result<SyncOutcome, String> {
+    pub fn sync_journal(&self, handle: JournalHandle) -> Result<SyncOutcome, EngineOpError> {
         let session = self
             .sessions
             .get(&handle.0)
-            .ok_or_else(|| "Journal handle not found".to_string())?;
+            .ok_or_else(|| EngineOpError::Other("Journal handle not found".to_string()))?;
 
         let report = self
             .engine
             .sync_journal(&session.session_id)
-            .map_err(Self::format_engine_error)?;
+            .map_err(EngineOpError::from_engine)?;
 
         Ok(SyncOutcome {
             conflicted_entry_ids: Self::entry_ids_from_stems(&report.conflicts),
@@ -199,6 +287,18 @@ impl EngineMock {
             behind: report.behind,
         })
     }
+
+    /// Persist a credential for `remote_url` in the platform secret store so
+    /// later fetch/push/clone to that remote can authenticate (ADR 0015). The
+    /// store is per-remote, not session-scoped, and a blank secret is rejected
+    /// with a validation error before the keychain is touched.
+    pub fn store_credential(&self, remote_url: &str, token: &str) -> Result<(), String> {
+        self.engine
+            .store_credential(remote_url, token)
+            .map_err(Self::format_engine_error)
+    }
+
+
 
     /// Entry ids with unresolved index conflicts per the latest status.
     pub fn conflicted_entry_ids(&self, handle: JournalHandle) -> Vec<String> {
@@ -907,7 +1007,10 @@ mod sync_surface_tests {
     fn sync_without_connected_journal_errors_gracefully() {
         let engine = EngineMock::default();
         let err = engine.sync_journal(JournalHandle(99)).unwrap_err();
-        assert_eq!(err, "Journal handle not found");
+        assert_eq!(
+            err,
+            EngineOpError::Other("Journal handle not found".to_string())
+        );
         assert!(engine.conflicted_entry_ids(JournalHandle(99)).is_empty());
     }
 }

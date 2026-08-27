@@ -394,12 +394,14 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
 
     let repository_group = adw::PreferencesGroup::builder()
         .title(crate::i18n::repository_group_title())
+        .description(crate::i18n::repository_group_description())
         .build();
 
     let current_repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
 
+    // "This computer": the connected diary's local folder.
     let change_row = adw::ActionRow::builder()
-        .title(crate::i18n::repository_path_label())
+        .title(crate::i18n::this_computer())
         .activatable(true)
         .sensitive(!current_repo_path.is_empty())
         .build();
@@ -434,6 +436,31 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     }
     change_row.add_suffix(&change_button);
     repository_group.add(&change_row);
+
+    // "From a server": replace the current diary with a fresh clone.
+    let clone_row = adw::ActionRow::builder()
+        .title(crate::i18n::from_server())
+        .activatable(true)
+        .build();
+    clone_row.set_subtitle(crate::i18n::clone_from_server_subtitle().as_str());
+    if let Some(app_window) = app_window.clone() {
+        clone_row.connect_activated(move |_| {
+            app_window.open_clone_dialog();
+        });
+    }
+    let clone_button = gtk::Button::builder()
+        .icon_name("emblem-synchronizing-symbolic")
+        .tooltip_text(crate::i18n::clone_action_tooltip())
+        .valign(gtk::Align::Center)
+        .css_classes(vec!["flat".to_string()])
+        .build();
+    if let Some(app_window) = app_window.clone() {
+        clone_button.connect_clicked(move |_| {
+            app_window.open_clone_dialog();
+        });
+    }
+    clone_row.add_suffix(&clone_button);
+    repository_group.add(&clone_row);
 
     page.add(&repository_group);
     page.add(&group);
