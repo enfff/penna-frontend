@@ -21,6 +21,46 @@ fn engine_guard(window: &PennaFrontendWindow) -> std::sync::MutexGuard<'_, Engin
     window.imp().engine.lock().unwrap()
 }
 
+/// Runs a blocking engine operation off the main thread, then hands the result
+/// back on the main thread. Keeps git I/O off the UI thread so the window never
+/// freezes while an operation is in flight. `work` locks the engine itself;
+/// `done` runs on the main thread and must perform all UI updates for the
+/// result.
+///
+/// Only the result (which is `Send`) crosses the thread boundary, via a
+/// channel. `done` itself may hold a non-`Send` window weak ref because it is
+/// invoked through `idle_add_local`, which keeps everything on the main thread
+/// and does not require `Send`. If the window is destroyed before the result
+/// lands, `done` is a no-op (its own weak ref fails to upgrade).
+pub(crate) fn offload<T, W, D>(
+    window: &PennaFrontendWindow,
+    work: W,
+    done: D,
+) where
+    T: Send + 'static,
+    W: FnOnce(&std::sync::Mutex<EngineMock>) -> T + Send + 'static,
+    D: FnOnce(T) + 'static,
+{
+    let engine = window.imp().engine.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<T>();
+    std::thread::spawn(move || {
+        let result = work(&engine);
+        let _ = tx.send(result);
+    });
+    let mut done = Option::Some(done);
+    gtk::glib::idle_add_local(move || {
+        match rx.try_recv() {
+            Ok(result) => {
+                if let Some(finish) = done.take() {
+                    finish(result);
+                }
+                gtk::glib::ControlFlow::Break
+            }
+            Err(_) => gtk::glib::ControlFlow::Continue,
+        }
+    });
+}
+
 pub fn connect_journal(
     window: &PennaFrontendWindow,
     repo_path: &str,
@@ -66,11 +106,6 @@ pub fn store_credential(
     engine_guard(window).store_credential(remote_url, token)
 }
 
-/// Entry ids with unresolved index conflicts per the latest status.
-pub fn conflicted_entry_ids(window: &PennaFrontendWindow, handle: JournalHandle) -> Vec<String> {
-    engine_guard(window).conflicted_entry_ids(handle)
-}
-
 pub fn list_entries(window: &PennaFrontendWindow, handle: JournalHandle) -> Vec<EntrySummary> {
     engine_guard(window).list_entries(handle)
 }
@@ -81,16 +116,6 @@ pub fn get_entry(
     entry_id: &str,
 ) -> Option<EntryRecord> {
     engine_guard(window).get_entry(handle, entry_id)
-}
-
-pub fn entry_save(
-    window: &PennaFrontendWindow,
-    handle: JournalHandle,
-    entry_id: &str,
-    content: &str,
-    tags: &[String],
-) -> Result<(), String> {
-    engine_guard(window).entry_save(handle, entry_id, content, tags)
 }
 
 pub fn create_entry_new(
@@ -149,9 +174,3 @@ pub fn entries_directory(window: &PennaFrontendWindow, handle: JournalHandle) ->
     engine_guard(window).entries_directory(handle)
 }
 
-pub fn reload_entries(
-    window: &PennaFrontendWindow,
-    handle: JournalHandle,
-) -> Result<usize, String> {
-    engine_guard(window).reload_entries(handle)
-}

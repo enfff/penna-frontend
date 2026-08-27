@@ -37,6 +37,10 @@ pub fn saved() -> String {
     gettext("Saved")
 }
 
+pub fn saving() -> String {
+    gettext("Saving…")
+}
+
 pub fn opened_todays_note() -> String {
     gettext("Opened today's note")
 }

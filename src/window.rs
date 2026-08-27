@@ -44,7 +44,7 @@ use crate::editor::{
 };
 use crate::engine::{
     ConnectResult, EngineMock, EngineOpError, EntrySnapshot, EntrySummary, JournalHandle,
-    JournalKind, SyncOutcome,
+    JournalKind, JournalStatus, SyncOutcome,
 };
 use crate::format;
 use crate::gestures;
@@ -66,6 +66,20 @@ struct CheckboxItem {
 struct LinkMatch {
     label_len: usize,
     total_len: usize,
+}
+
+/// Result of an off-main-thread save: the commit outcome plus the fresh
+/// journal status, read together under a single engine lock.
+struct SaveOutcome {
+    result: Result<(), String>,
+    status: Option<JournalStatus>,
+}
+
+/// Result of an off-main-thread disk reload: the reloaded entry count plus the
+/// fresh fingerprint, read together under a single engine lock.
+struct ReloadReport {
+    count: Result<usize, String>,
+    fingerprint: Option<u64>,
 }
 
 mod imp {
@@ -1657,20 +1671,54 @@ impl PennaFrontendWindow {
 
         let tags = imp.current_entry_tags.borrow().clone();
 
-        let save_result = sync::entry_save(self, handle, &entry_id, &content, &tags);
-
-        match save_result {
-            Ok(()) => {
-                self.set_entry_modified(false);
-                imp.sync_status_label.set_label(&i18n::saved());
-                grid::refresh_notes_grid(self);
-                self.show_editor_view();
-                self.maybe_conclude_merge();
-            }
-            Err(err) => {
-                imp.sync_status_label.set_label(&err);
-            }
-        }
+        // The git commit runs off the main thread so the window never freezes;
+        // the result is applied on the main thread once it lands.
+        imp.sync_status_label.set_label(&i18n::saving());
+        let save_entry_id = entry_id.clone();
+        sync::offload::<SaveOutcome, _, _>(
+            self,
+            move |engine| {
+                let mut engine = engine.lock().unwrap();
+                let result = engine.entry_save(handle, &save_entry_id, &content, &tags);
+                // Grab the fresh status under the same lock so the status bar
+                // can update without a second main-thread git read.
+                let status = engine.journal_status(handle);
+                SaveOutcome { result, status }
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |outcome: SaveOutcome| match outcome.result {
+                    Ok(()) => {
+                        // Ignore a save that landed after the user moved on to
+                        // another note.
+                        if window
+                            .imp()
+                            .current_entry_id
+                            .borrow()
+                            .as_deref()
+                            != Some(entry_id.as_str())
+                        {
+                            return;
+                        }
+                        window.set_entry_modified(false);
+                        window.show_editor_view();
+                        window.imp().sync_status_label.set_label(&i18n::saved());
+                        // Saving content leaves the (hidden) grid rows
+                        // unchanged, so no grid rebuild. Only conclude a
+                        // merge if one is actually in flight.
+                        if let Some(status) = &outcome.status {
+                            if status.merge_in_progress {
+                                window.maybe_conclude_merge();
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        window.imp().sync_status_label.set_label(&err);
+                    }
+                }
+            ),
+        );
     }
 
     fn create_new_entry(&self) {
@@ -2105,20 +2153,36 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let fingerprint = sync::entries_fingerprint(self, handle);
-
-        match fingerprint {
-            Ok(current) => {
-                let previous = *imp.last_entries_fingerprint.borrow();
-                if previous != Some(current) {
-                    self.reload_entries_from_disk("Detected external update.");
+        // The fingerprint read runs off the main thread so the periodic check
+        // never freezes the UI; a genuine change is reloaded when it lands.
+        sync::offload::<Result<u64, String>, _, _>(
+            self,
+            move |engine| {
+                let engine = engine.lock().unwrap();
+                engine.entries_fingerprint(handle)
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |fingerprint| match fingerprint {
+                    Ok(current) => {
+                        if window
+                            .imp()
+                            .last_entries_fingerprint
+                            .borrow()
+                            .as_ref()
+                            != Some(&current)
+                        {
+                            window.reload_entries_from_disk("Detected external update.");
+                        }
+                    }
+                    Err(err) => {
+                        window.imp().sync_status_label
+                            .set_label(&format!("Unable to inspect repository files: {err}"));
+                    }
                 }
-            }
-            Err(err) => {
-                imp.sync_status_label
-                    .set_label(&format!("Unable to inspect repository files: {err}"));
-            }
-        }
+            ),
+        );
     }
 
     fn reload_entries_from_disk(&self, status_prefix: &str) {
@@ -2127,23 +2191,40 @@ impl PennaFrontendWindow {
             return;
         };
 
-        let reload_result = sync::reload_entries(self, handle);
+        // Our own save writes the entry file and trips this monitor, so the
+        // reload + fingerprint runs off the main thread (no freeze); the grid
+        // and status update once it lands.
+        let status_prefix = status_prefix.to_string();
+        sync::offload::<ReloadReport, _, _>(
+            self,
+            move |engine| {
+                let mut engine = engine.lock().unwrap();
+                let count = engine.reload_entries(handle);
+                let fingerprint = engine.entries_fingerprint(handle).ok();
+                ReloadReport { count, fingerprint }
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |report: ReloadReport| match report.count {
+                    Ok(count) => {
+                        window.apply_reload_report(count, report.fingerprint, &status_prefix);
+                    }
+                    Err(err) => {
+                        window.imp().sync_status_label
+                            .set_label(&format!("Unable to reload entries from disk: {err}"));
+                    }
+                }
+            ),
+        );
+    }
 
-        match reload_result {
-            Ok(count) => {
-                grid::refresh_notes_grid(self);
-
-                let new_fingerprint = sync::entries_fingerprint(self, handle).ok();
-                *imp.last_entries_fingerprint.borrow_mut() = new_fingerprint;
-
-                imp.sync_status_label
-                    .set_label(&format!("{status_prefix} Entries: {count}"));
-            }
-            Err(err) => {
-                imp.sync_status_label
-                    .set_label(&format!("Unable to reload entries from disk: {err}"));
-            }
-        }
+    fn apply_reload_report(&self, count: usize, fingerprint: Option<u64>, status_prefix: &str) {
+        let imp = self.imp();
+        grid::refresh_notes_grid(self);
+        *imp.last_entries_fingerprint.borrow_mut() = fingerprint;
+        imp.sync_status_label
+            .set_label(&format!("{status_prefix} Entries: {count}"));
     }
 
     /// Entry IDs start with an 8-digit `YYYYMMDD` day prefix. Returns the

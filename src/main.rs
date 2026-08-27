@@ -42,6 +42,10 @@ use gtk::{gio, glib};
 use gtk::prelude::*;
 
 fn main() -> glib::ExitCode {
+    // Boot marker: confirms which binary actually started (the app is
+    // single-instance, so a stale background process can shadow a relaunch).
+    eprintln!("[penna-frontend] boot: watcher-offload build 2026-08-27");
+
     // Set up gettext translations
     gettextrs::setlocale(gettextrs::LocaleCategory::LcAll, "");
     bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR).expect("Unable to bind the text domain");

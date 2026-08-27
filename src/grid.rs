@@ -10,12 +10,20 @@ use gtk::pango;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
+use crate::engine::{EntrySummary, JournalStatus};
 use crate::format;
 use crate::i18n;
 use crate::sync;
 use crate::window::PennaFrontendWindow;
 
 const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
+
+struct GridData {
+    entries: Vec<EntrySummary>,
+    conflicted_ids: Vec<String>,
+    contents: Vec<String>,
+    status: Option<JournalStatus>,
+}
 
 pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
     let imp = window.imp();
@@ -25,24 +33,53 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
 
     let query = imp.notes_search_entry.text().trim().to_lowercase();
 
+    // The journal reads (list, per-note content, conflicted ids, status) run
+    // off the main thread so refreshing the grid never freezes the UI. Only
+    // widget building stays on the main thread, once the data lands.
+    sync::offload(
+        window,
+        move |engine| {
+            let engine = engine.lock().unwrap();
+            let entries = engine.list_entries(handle);
+            let conflicted_ids = engine.conflicted_entry_ids(handle);
+            let contents = entries
+                .iter()
+                .map(|entry| {
+                    engine
+                        .get_entry(handle, &entry.entry_id)
+                        .map(|record| record.content)
+                        .unwrap_or_default()
+                })
+                .collect();
+            let status = engine.journal_status(handle);
+            GridData {
+                entries,
+                conflicted_ids,
+                contents,
+                status,
+            }
+        },
+        glib::clone!(
+            #[weak(rename_to = window)]
+            window,
+            move |data: GridData| {
+                build_grid_rows(&window, data, &query)
+            }
+        ),
+    );
+}
+
+fn build_grid_rows(window: &PennaFrontendWindow, data: GridData, query: &str) {
+    let imp = window.imp();
+
     while let Some(child) = imp.notes_flowbox.first_child() {
         imp.notes_flowbox.remove(&child);
     }
 
-    let entries = sync::list_entries(window, handle);
-
-    // Notes still conflicted mid-merge get a warning badge so unresolved
-    // sync state is visible without opening each note.
-    let conflicted_ids = sync::conflicted_entry_ids(window, handle);
-
     let mut first_visible_button: Option<gtk::Button> = None;
 
-    for entry in &entries {
-        let content = sync::get_entry(window, handle, &entry.entry_id)
-            .map(|item| item.content)
-            .unwrap_or_default();
-
-        if !entry_matches_query(&entry.entry_id, &content, &entry.tags, &query) {
+    for (entry, content) in data.entries.iter().zip(data.contents.iter()) {
+        if !entry_matches_query(&entry.entry_id, content, &entry.tags, query) {
             continue;
         }
 
@@ -83,7 +120,7 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
 
         let leading_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         leading_box.set_hexpand(true);
-        if conflicted_ids.iter().any(|id| id == &entry.entry_id) {
+        if data.conflicted_ids.iter().any(|id| id == &entry.entry_id) {
             let conflict_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
             conflict_icon.set_tooltip_text(Some(&i18n::unresolved_sync_conflict()));
             conflict_icon.add_css_class("warning");
@@ -124,7 +161,7 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
     // Show the inviting empty state only when the journal has no notes at
     // all. A search that matches nothing leaves the grid empty but does
     // not show the "create your first note" prompt.
-    imp.notes_empty_state.set_visible(entries.is_empty());
+    imp.notes_empty_state.set_visible(data.entries.is_empty());
 
     // Keep highlighting a stable selection across refreshes; if the
     // previously selected note is gone (deleted, filtered out), fall back
@@ -147,19 +184,25 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
         }
     }
 
-    if let Some(status) = sync::journal_status(window, handle) {
-        let mut details = format!(
-            "Branch: {} | head: {} | dirty: {} | entries: {}",
-            status.branch, status.head_commit, status.dirty, status.entry_count
-        );
-        if status.merge_in_progress {
-            details.push_str(&format!(
-                " | merge in progress: {} unresolved",
-                status.conflicted_entry_ids.len()
-            ));
-        }
-        imp.sync_status_label.set_label(&details);
+    if let Some(status) = &data.status {
+        imp.sync_status_label.set_label(&status_details(status));
     }
+}
+
+/// One-line status-bar summary of the journal (branch, head, dirty flag,
+/// entry count, and any in-progress merge).
+pub(crate) fn status_details(status: &JournalStatus) -> String {
+    let mut details = format!(
+        "Branch: {} | head: {} | dirty: {} | entries: {}",
+        status.branch, status.head_commit, status.dirty, status.entry_count
+    );
+    if status.merge_in_progress {
+        details.push_str(&format!(
+            " | merge in progress: {} unresolved",
+            status.conflicted_entry_ids.len()
+        ));
+    }
+    details
 }
 
 fn entry_matches_query(entry_id: &str, content: &str, tags: &[String], query: &str) -> bool {
