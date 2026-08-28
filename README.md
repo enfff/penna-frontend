@@ -1,11 +1,20 @@
 # Diary
 
-A journal app for GNOME, built in top of the [penna engine](https://www.github.com/enfff/penna).
+A journal app for GNOME, built on top of the [penna engine](https://www.github.com/enfff/penna).
 Entries are plain Markdown files in a git repo, so history and sync come from git, and your notes stay readable even without this app.
 
 ![](media/main_menu_white.png)
 
 ![](media/conflict_resolution_black.png)
+
+## Get it
+
+Nightly Flatpak builds are produced automatically from the `develop`
+branch (skipped when nothing changed). Open the repository's
+[Actions](https://github.com/enfff/penna-frontend/actions) tab, pick a
+*Nightly* run, and download the `diary-nightly-<date>` artifact, then:
+
+    flatpak install diary-nightly-<date>.flatpak
 
 ## Build
 
