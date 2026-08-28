@@ -3,7 +3,7 @@
 A journal app for GNOME, built in top of the [penna engine](https://www.github.com/enfff/penna).
 Entries are plain Markdown files in a git repo, so history and sync come from git, and your notes stay readable even without this app.
 
-![](media/editor_headerbar_white.png)
+![](media/main_menu_white.png)
 
 ![](media/conflict_resolution_black.png)
 
