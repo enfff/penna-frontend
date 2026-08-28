@@ -11,6 +11,9 @@
 # Flatpak Builder cache/output
 /.flatpak-builder/
 
+# Generated devel (nightly) manifest, see scripts/make-devel-manifest.sh
+io.github.enfff.Diary.Devel.json
+
 # Editor/OS temporary files
 *~
 *.swp

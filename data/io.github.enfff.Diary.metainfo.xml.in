@@ -29,7 +29,7 @@
   <url type="homepage">https://github.com/enfff/penna-frontend</url>
   <url type="vcs-browser">https://github.com/enfff/penna-frontend</url>
   <url type="bugtracker">https://github.com/enfff/penna-frontend/issues</url>
-  <url type="translate">https://github.com/enfff/penna-frontend/tree/main/po</url>
+  <url type="translate">https://github.com/enfff/penna-frontend/tree/develop/po</url>
 
   <translation type="gettext">penna-frontend</translation>
   <launchable type="desktop-id">io.github.enfff.Diary.desktop</launchable>

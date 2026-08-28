@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 env:
@@ -23,3 +23,7 @@ jobs:
           manifest-path: io.github.enfff.Diary.json
           run-tests: true
           cache-key: flatpak-builder-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diary-flatpak
+          path: diary.flatpak
