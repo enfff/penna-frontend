@@ -1,0 +1,43 @@
+# Maintainer: Francesco P. Carmone <enforcetitan at gmail dot com>
+pkgname=penna-frontend-git
+pkgver=0.1.4.r15.g46bab68
+pkgrel=1
+pkgdesc='Local-first journaling app for GNOME'
+arch=('x86_64')
+url='https://github.com/enfff/penna-frontend'
+license=('GPL-3.0-or-later')
+# rust-lld (rustc's default linker) cannot resolve symbols from GCC LTO
+# bitcode archives, and the vendored libgit2 is compiled from C and linked
+# statically into the final binary. The only C code built by this package is
+# that vendored libgit2, so drop makepkg.conf's CFLAGS (which include
+# -flto=auto) for all build stages.
+options=(!buildflags)
+depends=('dbus' 'glib2' 'gtk4' 'libadwaita' 'openssl' 'pango' 'zlib-ng-compat')
+makedepends=('git' 'gettext' 'meson' 'ninja' 'pkgconf' 'rust')
+source=('git+https://github.com/enfff/penna-frontend.git')
+sha256sums=('SKIP')
+install=penna-frontend-git.install
+
+pkgver() {
+  cd "$srcdir/${pkgname%-git}"
+  ( set -o pipefail
+    git describe --long --abbrev=7 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  )
+}
+
+build() {
+  cd "$srcdir/${pkgname%-git}"
+  meson setup build --prefix=/usr --libdir=lib --buildtype=release --wrap-mode=nofallback
+  meson compile -C build
+}
+
+check() {
+  cd "$srcdir/${pkgname%-git}"
+  meson test -C build
+}
+
+package() {
+  cd "$srcdir/${pkgname%-git}"
+  meson install -C build --destdir "$pkgdir"
+}

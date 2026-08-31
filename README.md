@@ -7,6 +7,12 @@ Entries are plain Markdown files in a git repo, so history and sync come from gi
 
 ![](media/conflict_resolution_black.png)
 
+## Install
+
+Arch Linux (AUR):
+
+    yay -S penna-frontend-git
+
 ## Build
 
 Open the folder in GNOME Builder and press run. Or by hand:
