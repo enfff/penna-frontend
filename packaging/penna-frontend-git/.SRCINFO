@@ -1,0 +1,26 @@
+pkgbase = penna-frontend-git
+	pkgdesc = Local-first journaling app for GNOME
+	pkgver = 0.1.4.r16.g908f8b9
+	pkgrel = 1
+	url = https://github.com/enfff/penna-frontend
+	install = penna-frontend-git.install
+	arch = x86_64
+	license = GPL-3.0-or-later
+	makedepends = git
+	makedepends = gettext
+	makedepends = meson
+	makedepends = ninja
+	makedepends = pkgconf
+	makedepends = rust
+	depends = dbus
+	depends = glib2
+	depends = gtk4
+	depends = libadwaita
+	depends = openssl
+	depends = pango
+	depends = zlib-ng-compat
+	options = !buildflags
+	source = git+https://github.com/enfff/penna-frontend.git
+	sha256sums = SKIP
+
+pkgname = penna-frontend-git

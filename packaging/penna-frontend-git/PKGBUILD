@@ -1,6 +1,6 @@
 # Maintainer: Francesco P. Carmone <enforcetitan at gmail dot com>
 pkgname=penna-frontend-git
-pkgver=0.1.4.r15.g46bab68
+pkgver=0.1.4.r16.g908f8b9
 pkgrel=1
 pkgdesc='Local-first journaling app for GNOME'
 arch=('x86_64')
