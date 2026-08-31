@@ -7,15 +7,6 @@ Entries are plain Markdown files in a git repo, so history and sync come from gi
 
 ![](media/conflict_resolution_black.png)
 
-## Get it
-
-Nightly Flatpak builds are produced automatically from the `develop`
-branch (skipped when nothing changed). Open the repository's
-[Actions](https://github.com/enfff/penna-frontend/actions) tab, pick a
-*Nightly* run, and download the `diary-nightly-<date>` artifact, then:
-
-    flatpak install diary-nightly-<date>.flatpak
-
 ## Build
 
 Open the folder in GNOME Builder and press run. Or by hand:

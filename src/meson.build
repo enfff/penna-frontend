@@ -31,11 +31,10 @@ run_command(
 cargo_bin  = find_program('cargo')
 cargo_opt  = [ '--manifest-path', meson.project_source_root() / 'Cargo.toml' ]
 cargo_opt += [ '--target-dir', meson.project_build_root()  / 'src' ]
-# Project-local CARGO_HOME: the flatpak build container does not share
-# ~/.cargo, so a git dep on the private penna repo would fail to authenticate.
-# A cache seeded inside the project tree (via `cargo fetch` with the same
-# CARGO_HOME on the host) is visible to the sandbox build, so cargo reuses
-# the existing git checkout without cloning or needing credentials.
+# Project-local CARGO_HOME: sandboxed builds (e.g. flatpak-builder) do not
+# share ~/.cargo, so keep the registry and git-dep cache inside the project
+# tree where the sandbox can see it (seed via `cargo fetch` with the same
+# CARGO_HOME if an offline build is needed).
 cargo_env  = [ 'CARGO_HOME=' + meson.project_source_root() / '.cargo',
              # Out-of-tree build dirs sit outside the repo, so
              # rust-toolchain.toml is not seen; pin explicitly.
