@@ -2608,7 +2608,14 @@ impl PennaFrontendWindow {
             activate_row,
             #[strong]
             create_tag_from_search,
+            #[strong]
+            dialog,
             move |_, keyval, _, _| {
+                if keyval == gdk::Key::Escape {
+                    dialog.close();
+                    return glib::Propagation::Stop;
+                }
+
                 if matches!(
                     keyval,
                     gdk::Key::Up | gdk::Key::KP_Up | gdk::Key::Down | gdk::Key::KP_Down
@@ -2666,7 +2673,14 @@ impl PennaFrontendWindow {
             list_box,
             #[strong]
             activate_row,
+            #[strong]
+            dialog,
             move |_, keyval, _, _| {
+                if keyval == gdk::Key::Escape {
+                    dialog.close();
+                    return glib::Propagation::Stop;
+                }
+
                 if matches!(keyval, gdk::Key::space | gdk::Key::KP_Space) {
                     if let Some(row) = list_box.focus_child().and_downcast::<gtk::ListBoxRow>() {
                         activate_row(&row);
@@ -2696,6 +2710,23 @@ impl PennaFrontendWindow {
         ));
 
         *render_rows_handle.borrow_mut() = Some(render_rows.clone());
+
+        // AdwDialog has no built-in Escape handling and this dialog has no
+        // close button. The search-entry and list controllers above handle
+        // Esc for their focus states (they run before a child's default
+        // key handling); this dialog-level controller is the backstop for
+        // any other focusable. Focus returns to the editor on close.
+        let dialog_for_esc = dialog.clone();
+        let esc_keys = gtk::EventControllerKey::new();
+        esc_keys.connect_key_pressed(move |_, keyval, _, _| {
+            if keyval == gdk::Key::Escape {
+                dialog_for_esc.close();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        dialog.add_controller(esc_keys);
 
         render_chips();
         render_rows();
