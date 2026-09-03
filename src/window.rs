@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-use adw::prelude::{AdwDialogExt, NavigationPageExt};
+use adw::prelude::{AdwDialogExt, AlertDialogExt, NavigationPageExt};
 use adw::subclass::prelude::*;
 use gtk::pango;
 use gtk::prelude::*;
@@ -84,6 +84,22 @@ struct ReloadReport {
 
 mod imp {
     use super::*;
+
+    pub(super) struct NoDebug<T>(pub T);
+
+    impl<T> std::fmt::Debug for NoDebug<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_tuple("NoDebug").field(&"...").finish()
+        }
+    }
+
+    impl<T: Default> Default for NoDebug<T> {
+        fn default() -> Self {
+            Self(T::default())
+        }
+    }
+
+    pub(super) type PendingLeave = NoDebug<RefCell<Option<Box<dyn FnOnce()>>>>;
 
     #[derive(Debug, gtk::CompositeTemplate)]
     #[template(resource = "/io/github/enfff/Diary/window.ui")]
@@ -153,7 +169,7 @@ mod imp {
         pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
         pub modified: RefCell<bool>,
-        pub pending_close: RefCell<bool>,
+        pub(super) pending_leave: PendingLeave,
         pub conflict_widgets: RefCell<Vec<gtk::Box>>,
         pub conflicted_entry_ids: RefCell<Vec<String>>,
     }
@@ -202,7 +218,7 @@ mod imp {
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
-                pending_close: RefCell::default(),
+                pending_leave: NoDebug::default(),
                 conflict_widgets: RefCell::default(),
                 conflicted_entry_ids: RefCell::default(),
             }
@@ -236,22 +252,26 @@ mod imp {
 
     impl WindowImpl for PennaFrontendWindow {
         fn close_request(&self) -> glib::Propagation {
-            if *self.pending_close.borrow() {
+            if self.pending_leave.0.borrow().is_some() {
                 return glib::Propagation::Stop;
             }
 
-            let needs_save = settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY)
-                && *self.modified.borrow()
+            let needs_decision = *self.modified.borrow()
                 && self.current_handle.borrow().is_some()
                 && self.current_entry_id.borrow().is_some();
 
-            if needs_save {
-                *self.pending_close.borrow_mut() = true;
-                if self.obj().save_current_entry() {
+            if needs_decision {
+                let weak = self.obj().downgrade();
+                *self.pending_leave.0.borrow_mut() = Some(Box::new(move || {
+                    if let Some(window) = weak.upgrade() {
+                        window.close();
+                    }
+                }));
+                self.obj().prompt_unsaved_changes_or_autosave();
+
+                if self.pending_leave.0.borrow().is_some() {
                     return glib::Propagation::Stop;
                 }
-
-                *self.pending_close.borrow_mut() = false;
             }
 
             glib::Propagation::Proceed
@@ -640,7 +660,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
-                window.cancel_pending_close();
+                window.cancel_pending_leave();
                 window.apply_markdown_styling();
                 window.update_conflict_actions();
                 window.set_entry_modified(true);
@@ -1324,15 +1344,44 @@ impl PennaFrontendWindow {
         status_text: &str,
         run_initial_sync: bool,
     ) {
+        let journal_handle = result.journal_handle;
+        let repo_path = result.repo_path.clone();
+        let status_text = status_text.to_string();
+        self.guard_leave_current_entry(Box::new(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong]
+            journal_handle,
+            #[strong]
+            repo_path,
+            #[strong]
+            status_text,
+            #[strong]
+            run_initial_sync,
+            move || {
+                window.apply_connected_journal_inner(
+                    journal_handle,
+                    &repo_path,
+                    &status_text,
+                    run_initial_sync,
+                );
+            }
+        )));
+    }
+
+    fn apply_connected_journal_inner(
+        &self,
+        journal_handle: JournalHandle,
+        repo_path: &str,
+        status_text: &str,
+        run_initial_sync: bool,
+    ) {
         let imp = self.imp();
-        self.cancel_pending_close();
-        self.autosave_if_modified();
         *imp.current_entry_id.borrow_mut() = None;
         imp.current_entry_tags.borrow_mut().clear();
         self.set_entry_modified(false);
-        *imp.current_handle.borrow_mut() = Some(result.journal_handle);
-        let _ =
-            settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, &result.repo_path);
+        *imp.current_handle.borrow_mut() = Some(journal_handle);
+        let _ = settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, repo_path);
         imp.sync_status_label.set_label(status_text);
         imp.setup_status_label.set_label(status_text);
         grid::refresh_notes_grid(self);
@@ -1627,9 +1676,23 @@ impl PennaFrontendWindow {
     }
 
     pub(crate) fn open_entry(&self, entry_id: &str) {
-        if self.load_entry(entry_id) {
+        if self.imp().current_entry_id.borrow().as_deref() == Some(entry_id) {
             self.show_editor_view();
+            return;
         }
+
+        let target = entry_id.to_string();
+        self.guard_leave_current_entry(Box::new(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong]
+            target,
+            move || {
+                if window.load_entry(&target) {
+                    window.show_editor_view();
+                }
+            }
+        )));
     }
 
     /// Loads a note into the editor buffer and syncs entry state without
@@ -1646,12 +1709,6 @@ impl PennaFrontendWindow {
         let Some(entry) = sync::get_entry(self, handle, entry_id) else {
             return false;
         };
-
-        let same_entry = imp.current_entry_id.borrow().as_deref() == Some(entry_id);
-        self.cancel_pending_close();
-        if !same_entry {
-            self.autosave_if_modified();
-        }
 
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
         *imp.current_entry_tags.borrow_mut() = entry.tags.clone();
@@ -1679,27 +1736,82 @@ impl PennaFrontendWindow {
         self.open_entry(&entry_id);
     }
 
-    fn autosave_if_modified(&self) {
-        let imp = self.imp();
-        if *imp.modified.borrow() && settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY) {
-            let _ = self.save_current_entry();
+    fn cancel_pending_leave(&self) {
+        if self.imp().pending_leave.0.borrow().is_some() {
+            *self.imp().pending_leave.0.borrow_mut() = None;
         }
     }
 
-    fn cancel_pending_close(&self) {
-        if *self.imp().pending_close.borrow() {
-            *self.imp().pending_close.borrow_mut() = false;
+    fn finish_pending_leave(&self) {
+        if let Some(on_leave) = self.imp().pending_leave.0.borrow_mut().take() {
+            on_leave();
         }
     }
 
-    fn finish_pending_close(&self) {
+    fn guard_leave_current_entry(&self, on_leave: Box<dyn FnOnce()>) {
         let imp = self.imp();
-        if !*imp.pending_close.borrow() {
+        if !*imp.modified.borrow()
+            || imp.current_handle.borrow().is_none()
+            || imp.current_entry_id.borrow().is_none()
+        {
+            on_leave();
             return;
         }
 
-        *imp.pending_close.borrow_mut() = false;
-        self.close();
+        *imp.pending_leave.0.borrow_mut() = Some(on_leave);
+        self.prompt_unsaved_changes_or_autosave();
+    }
+
+    fn prompt_unsaved_changes_or_autosave(&self) {
+        if settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY) {
+            let _ = self.save_current_entry();
+        } else {
+            self.show_unsaved_changes_dialog();
+        }
+    }
+
+    fn show_unsaved_changes_dialog(&self) {
+        let dialog = adw::AlertDialog::new(
+            Some(&i18n::unsaved_changes_title()),
+            Some(&i18n::unsaved_changes_body()),
+        );
+        dialog.add_response("cancel", &i18n::cancel());
+        dialog.add_response("discard", &i18n::discard_label());
+        dialog.add_response("save", &i18n::save_label());
+        dialog.set_response_appearance(
+            "save",
+            adw::ResponseAppearance::Suggested,
+        );
+        dialog.set_response_appearance(
+            "discard",
+            adw::ResponseAppearance::Destructive,
+        );
+        dialog.set_close_response("cancel");
+        dialog.set_default_response(Some("save"));
+
+        dialog.connect_response(
+            None,
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_, response: &str| match response {
+                    "save" => {
+                        if !window.save_current_entry() {
+                            window.cancel_pending_leave();
+                        }
+                    }
+                    "discard" => {
+                        window.set_entry_modified(false);
+                        window.finish_pending_leave();
+                    }
+                    _ => {
+                        window.cancel_pending_leave();
+                    }
+                }
+            ),
+        );
+
+        dialog.present(Some(self));
     }
 
     fn save_current_entry(&self) -> bool {
@@ -1760,7 +1872,7 @@ impl PennaFrontendWindow {
                             .as_deref()
                             != Some(entry_id.as_str())
                         {
-                            window.finish_pending_close();
+                            window.finish_pending_leave();
                             return;
                         }
                         window.set_entry_modified(false);
@@ -1773,11 +1885,11 @@ impl PennaFrontendWindow {
                                 window.maybe_conclude_merge();
                             }
                         }
-                        window.finish_pending_close();
+                        window.finish_pending_leave();
                     }
                     Err(err) => {
                         window.imp().sync_status_label.set_label(&err);
-                        window.finish_pending_close();
+                        window.finish_pending_leave();
                     }
                 }
             ),
@@ -1791,8 +1903,6 @@ impl PennaFrontendWindow {
         let Some(handle) = *imp.current_handle.borrow() else {
             return;
         };
-
-        self.cancel_pending_close();
 
         // One note per day: if today already has an entry, redirect to it
         // instead of creating a duplicate.
@@ -1812,8 +1922,19 @@ impl PennaFrontendWindow {
             return;
         }
 
-        self.autosave_if_modified();
+        self.guard_leave_current_entry(Box::new(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            #[strong]
+            handle,
+            move || {
+                window.create_new_entry_inner(handle);
+            }
+        )));
+    }
 
+    fn create_new_entry_inner(&self, handle: JournalHandle) {
+        let imp = self.imp();
         let record = match sync::create_entry_new(self, handle) {
             Ok(record) => record,
             Err(err) => {
@@ -1837,7 +1958,7 @@ impl PennaFrontendWindow {
 
     fn delete_current_entry(&self) {
         let imp = self.imp();
-        self.cancel_pending_close();
+        self.cancel_pending_leave();
         let Some(handle) = *imp.current_handle.borrow() else {
             imp.sync_status_label
                 .set_label(&i18n::connect_repository_before_deleting());
@@ -3520,9 +3641,17 @@ impl PennaFrontendWindow {
     }
 
     pub(crate) fn show_grid_view(&self) {
+        self.guard_leave_current_entry(Box::new(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move || {
+                window.show_grid_view_inner();
+            }
+        )));
+    }
+
+    fn show_grid_view_inner(&self) {
         let imp = self.imp();
-        self.cancel_pending_close();
-        self.autosave_if_modified();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = true;
         self.set_editor_only_actions_enabled(false);
@@ -3552,9 +3681,17 @@ impl PennaFrontendWindow {
     }
 
     fn show_setup_page(&self) {
+        self.guard_leave_current_entry(Box::new(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move || {
+                window.show_setup_page_inner();
+            }
+        )));
+    }
+
+    fn show_setup_page_inner(&self) {
         let imp = self.imp();
-        self.cancel_pending_close();
-        self.autosave_if_modified();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = false;
         self.set_editor_only_actions_enabled(false);

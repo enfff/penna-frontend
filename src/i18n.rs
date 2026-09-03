@@ -139,6 +139,22 @@ pub fn auto_save_subtitle() -> String {
     gettext("Save the current note when you leave it.")
 }
 
+pub fn unsaved_changes_title() -> String {
+    gettext("Unsaved changes")
+}
+
+pub fn unsaved_changes_body() -> String {
+    gettext("Save changes to this note before leaving?")
+}
+
+pub fn discard_label() -> String {
+    gettext("Discard")
+}
+
+pub fn save_label() -> String {
+    gettext("Save")
+}
+
 pub fn repository_group_title() -> String {
     gettext("Repository")
 }

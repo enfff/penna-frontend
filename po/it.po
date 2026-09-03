@@ -308,3 +308,23 @@ msgstr "Salvataggio automatico"
 #: src/i18n.rs:139
 msgid "Save the current note when you leave it."
 msgstr "Salva la nota corrente quando la lasci."
+
+#: src/i18n.rs:143
+msgid "Unsaved changes"
+msgstr "Modifiche non salvate"
+
+#: src/i18n.rs:147
+msgid "Save changes to this note before leaving?"
+msgstr "Salvare le modifiche a questa nota prima di lasciarla?"
+
+#: src/i18n.rs:151
+msgid "Discard"
+msgstr "Scarta"
+
+#: src/i18n.rs:155
+msgid "Save"
+msgstr "Salva"
+
+#: src/i18n.rs:216
+msgid "Cancel"
+msgstr "Annulla"

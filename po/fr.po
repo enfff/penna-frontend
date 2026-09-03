@@ -308,3 +308,23 @@ msgstr "Enregistrement automatique"
 #: src/i18n.rs:139
 msgid "Save the current note when you leave it."
 msgstr "Enregistre la note actuelle lorsque vous la quittez."
+
+#: src/i18n.rs:143
+msgid "Unsaved changes"
+msgstr "Modifications non enregistrées"
+
+#: src/i18n.rs:147
+msgid "Save changes to this note before leaving?"
+msgstr "Enregistrer les modifications de cette note avant de la quitter ?"
+
+#: src/i18n.rs:151
+msgid "Discard"
+msgstr "Abandonner"
+
+#: src/i18n.rs:155
+msgid "Save"
+msgstr "Enregistrer"
+
+#: src/i18n.rs:216
+msgid "Cancel"
+msgstr "Annuler"

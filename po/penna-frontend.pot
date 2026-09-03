@@ -342,3 +342,23 @@ msgstr ""
 #: src/i18n.rs:139
 msgid "Save the current note when you leave it."
 msgstr ""
+
+#: src/i18n.rs:143
+msgid "Unsaved changes"
+msgstr ""
+
+#: src/i18n.rs:147
+msgid "Save changes to this note before leaving?"
+msgstr ""
+
+#: src/i18n.rs:151
+msgid "Discard"
+msgstr ""
+
+#: src/i18n.rs:155
+msgid "Save"
+msgstr ""
+
+#: src/i18n.rs:216
+msgid "Cancel"
+msgstr ""

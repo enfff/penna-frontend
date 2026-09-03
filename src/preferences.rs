@@ -191,9 +191,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         .title(i18n::editor_page_title())
         .icon_name("font-x-generic-symbolic")
         .build();
-    let font_group = adw::PreferencesGroup::builder()
-        .title("Font")
-        .build();
+    let font_group = adw::PreferencesGroup::new();
 
     let options_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     options_box.set_hexpand(true);

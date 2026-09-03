@@ -308,3 +308,23 @@ msgstr "Automatisch speichern"
 #: src/i18n.rs:139
 msgid "Save the current note when you leave it."
 msgstr "Speichert die aktuelle Notiz, wenn Sie sie verlassen."
+
+#: src/i18n.rs:143
+msgid "Unsaved changes"
+msgstr "Ungespeicherte Änderungen"
+
+#: src/i18n.rs:147
+msgid "Save changes to this note before leaving?"
+msgstr "Änderungen an dieser Notiz speichern, bevor Sie sie verlassen?"
+
+#: src/i18n.rs:151
+msgid "Discard"
+msgstr "Verwerfen"
+
+#: src/i18n.rs:155
+msgid "Save"
+msgstr "Speichern"
+
+#: src/i18n.rs:216
+msgid "Cancel"
+msgstr "Abbrechen"
