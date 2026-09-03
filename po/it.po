@@ -86,12 +86,12 @@ msgid "Journal repository path selected during setup."
 msgstr "Percorso del repository del diario scelto durante la configurazione."
 
 #: data/io.github.enfff.Diary.gschema.xml:11
-msgid "Enable confetti mode"
-msgstr "Attiva la modalità coriandoli"
+msgid "Enable auto-save"
+msgstr "Attiva il salvataggio automatico"
 
 #: data/io.github.enfff.Diary.gschema.xml:12
-msgid "Mock preference used for prototype preferences window."
-msgstr "Preferenza fittizia per la finestra prototipo delle preferenze."
+msgid "Save the current note automatically when you leave it."
+msgstr "Salva automaticamente la nota corrente quando la lasci."
 
 #: data/io.github.enfff.Diary.gschema.xml:16
 msgid "Open editor in viewer mode"
@@ -296,3 +296,15 @@ msgstr "Scegli la cartella del repository"
 #: src/i18n.rs:122
 msgid "Unresolved sync conflict"
 msgstr "Conflitto di sincronizzazione irrisolto"
+
+#: src/i18n.rs:127
+msgid "General"
+msgstr "Generale"
+
+#: src/i18n.rs:135
+msgid "Auto-save"
+msgstr "Salvataggio automatico"
+
+#: src/i18n.rs:139
+msgid "Save the current note when you leave it."
+msgstr "Salva la nota corrente quando la lasci."

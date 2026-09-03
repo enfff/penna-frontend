@@ -123,6 +123,22 @@ pub fn accepted_both_changes() -> String {
     gettext("Kept both versions")
 }
 
+pub fn general_page_title() -> String {
+    gettext("General")
+}
+
+pub fn editor_page_title() -> String {
+    gettext("Editor")
+}
+
+pub fn auto_save_title() -> String {
+    gettext("Auto-save")
+}
+
+pub fn auto_save_subtitle() -> String {
+    gettext("Save the current note when you leave it.")
+}
+
 pub fn repository_group_title() -> String {
     gettext("Repository")
 }

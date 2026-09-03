@@ -343,9 +343,11 @@ pub fn setup_editor_tags(window: &PennaFrontendWindow) {
     add_tag(
         &gtk::TextTag::builder()
             .name(TAG_RULE)
-            .scale(0.85)
-            .weight(700)
-            .justification(gtk::Justification::Center)
+            .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
+            .scale(0.18)
+            .line_height(0.45)
+            .paragraph_background_rgba(&gdk::RGBA::new(0.78, 0.78, 0.78, 1.0))
+            .paragraph_background_set(true)
             .build(),
     );
     add_tag(

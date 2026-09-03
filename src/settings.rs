@@ -15,7 +15,7 @@ pub const SETTINGS_EDITOR_VIEWER_MODE_KEY: &str = "editor-viewer-mode";
 pub const SETTINGS_EDITOR_FONT_PRESET_KEY: &str = "editor-font-preset";
 pub const SETTINGS_EDITOR_FONT_CUSTOM_KEY: &str = "editor-font-custom";
 pub const SETTINGS_ENTRY_DATETIME_FORMAT_KEY: &str = "entry-datetime-format";
-pub const SETTINGS_CONFETTI_KEY: &str = "enable-confetti-mode";
+pub const SETTINGS_AUTO_SAVE_KEY: &str = "enable-auto-save";
 
 fn settings() -> gio::Settings {
     gio::Settings::new(SETTINGS_SCHEMA_ID)

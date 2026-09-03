@@ -9,6 +9,7 @@ use gtk::{gio, glib, pango};
 use crate::application::PennaFrontendApplication;
 use crate::editor;
 use crate::format::ENTRY_DATETIME_FORMAT_DEFAULT;
+use crate::i18n;
 use crate::settings;
 use crate::PennaFrontendWindow;
 
@@ -39,7 +40,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
 
     let app_window = window.clone().downcast::<PennaFrontendWindow>().ok();
 
-    let confetti_active = settings::get_bool(settings::SETTINGS_CONFETTI_KEY);
+    let auto_save_enabled = settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY);
     let font_preset = settings::get_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY);
     let custom_font = settings::get_str(settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY);
     let entry_datetime_format =
@@ -47,28 +48,152 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
 
     let prefs = adw::PreferencesDialog::new();
 
-    let page = adw::PreferencesPage::new();
-    let group = adw::PreferencesGroup::builder()
-        .title("General")
+    let general_page = adw::PreferencesPage::builder()
+        .title(i18n::general_page_title())
+        .icon_name("emblem-system-symbolic")
+        .build();
+    let general_group = adw::PreferencesGroup::new();
+
+    let auto_save_row = adw::SwitchRow::builder()
+        .title(i18n::auto_save_title())
+        .subtitle(i18n::auto_save_subtitle())
+        .active(auto_save_enabled)
         .build();
 
-    let mock_row = adw::SwitchRow::builder()
-        .title("Enable confetti mode")
-        // .subtitle("Mocked preference for now")
-        .active(confetti_active)
-        .build();
-
-    mock_row.connect_active_notify(move |row| {
-        let _ = settings::set_bool(settings::SETTINGS_CONFETTI_KEY, row.is_active());
+    auto_save_row.connect_active_notify(move |row| {
+        let _ = settings::set_bool(settings::SETTINGS_AUTO_SAVE_KEY, row.is_active());
     });
 
-    group.add(&mock_row);
+    general_group.add(&auto_save_row);
 
+    let entry_format_row = adw::EntryRow::new();
+    entry_format_row
+        .set_title("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)");
+    entry_format_row.set_text(if entry_datetime_format.trim().is_empty() {
+        ENTRY_DATETIME_FORMAT_DEFAULT
+    } else {
+        entry_datetime_format.trim()
+    });
+    entry_format_row.set_show_apply_button(false);
 
-    let font_group = adw::PreferencesGroup::builder()
-        .title("Editor")
+    // Live preview of the format, shown to the right of the entry.
+    let entry_format_preview = gtk::Label::new(None);
+    entry_format_preview.add_css_class("dim-label");
+    entry_format_preview.set_halign(gtk::Align::End);
+    entry_format_row.add_suffix(&entry_format_preview);
+
+    let initial_format = if entry_datetime_format.trim().is_empty() {
+        ENTRY_DATETIME_FORMAT_DEFAULT
+    } else {
+        entry_datetime_format.trim()
+    };
+    entry_format_preview.set_text(&preview_datetime_format(initial_format));
+
+    let app_for_entry_format = app.clone();
+    entry_format_row.connect_text_notify(move |row| {
+        let text = row.text();
+        let normalized = if text.trim().is_empty() {
+            ENTRY_DATETIME_FORMAT_DEFAULT
+        } else {
+            text.trim()
+        };
+
+        let _ = settings::set_str(settings::SETTINGS_ENTRY_DATETIME_FORMAT_KEY, normalized);
+
+        entry_format_preview.set_text(&preview_datetime_format(normalized));
+
+        if let Some(window) = app_for_entry_format.active_window() {
+            if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                window.refresh_entry_datetime_format();
+            }
+        }
+    });
+
+    general_group.add(&entry_format_row);
+    general_page.add(&general_group);
+
+    let repository_page = adw::PreferencesPage::builder()
+        .title(i18n::repository_group_title())
+        .icon_name("folder-symbolic")
         .build();
-    let font_size_group = adw::PreferencesGroup::new();
+    let repository_group = adw::PreferencesGroup::builder()
+        .description(i18n::repository_group_description())
+        .build();
+
+    let current_repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
+
+    // "This computer": the connected diary's local folder.
+    let change_row = adw::ActionRow::builder()
+        .title(i18n::this_computer())
+        .activatable(true)
+        .sensitive(!current_repo_path.is_empty())
+        .build();
+    if !current_repo_path.is_empty() {
+        change_row.set_subtitle(&current_repo_path);
+    } else {
+        change_row.set_subtitle(i18n::no_repository_connected().as_str());
+    }
+    {
+        let app_window = app_window.clone();
+        let captured_path = current_repo_path.clone();
+        // Clicking the row itself opens the journal folder.
+        change_row.connect_activated(move |_| {
+            let file = gio::File::for_path(&captured_path);
+            gtk::FileLauncher::new(Some(&file)).open_containing_folder(
+                app_window.as_ref(),
+                None::<&gio::Cancellable>,
+                |_| {},
+            );
+        });
+    }
+    let change_button = gtk::Button::builder()
+        .icon_name("folder-visiting-symbolic")
+        .tooltip_text(i18n::change_action_label())
+        .valign(gtk::Align::Center)
+        .css_classes(vec!["flat".to_string()])
+        .build();
+    if let Some(app_window) = app_window.clone() {
+        change_button.connect_clicked(move |_| {
+            app_window.pick_repository_and_connect();
+        });
+    }
+    change_row.add_suffix(&change_button);
+    repository_group.add(&change_row);
+
+    // "From a server": replace the current diary with a fresh clone.
+    let clone_row = adw::ActionRow::builder()
+        .title(i18n::from_server())
+        .activatable(true)
+        .build();
+    clone_row.set_subtitle(i18n::clone_from_server_subtitle().as_str());
+    if let Some(app_window) = app_window.clone() {
+        clone_row.connect_activated(move |_| {
+            app_window.open_clone_dialog();
+        });
+    }
+    let clone_button = gtk::Button::builder()
+        .icon_name("emblem-synchronizing-symbolic")
+        .tooltip_text(i18n::clone_action_tooltip())
+        .valign(gtk::Align::Center)
+        .css_classes(vec!["flat".to_string()])
+        .build();
+    if let Some(app_window) = app_window.clone() {
+        clone_button.connect_clicked(move |_| {
+            app_window.open_clone_dialog();
+        });
+    }
+    clone_row.add_suffix(&clone_button);
+    repository_group.add(&clone_row);
+
+    repository_page.add(&repository_group);
+
+    let editor_page = adw::PreferencesPage::builder()
+        .title(i18n::editor_page_title())
+        .icon_name("font-x-generic-symbolic")
+        .build();
+    let font_group = adw::PreferencesGroup::builder()
+        .title("Font")
+        .build();
 
     let options_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     options_box.set_hexpand(true);
@@ -220,7 +345,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     options_box.append(&serif_frame);
     options_box.append(&custom_frame);
     font_group.add(&options_box);
-    font_size_group.add(&font_size_row);
+    font_group.add(&font_size_row);
 
     let app_for_sans = app.clone();
     sans_radio.connect_toggled(move |radio| {
@@ -347,125 +472,10 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         }
     });
 
-    let entry_format_row = adw::EntryRow::new();
-    entry_format_row
-        .set_title("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)");
-    entry_format_row.set_text(if entry_datetime_format.trim().is_empty() {
-        ENTRY_DATETIME_FORMAT_DEFAULT
-    } else {
-        entry_datetime_format.trim()
-    });
-    entry_format_row.set_show_apply_button(false);
+    editor_page.add(&font_group);
 
-    // Live preview of the format, shown to the right of the entry.
-    let entry_format_preview = gtk::Label::new(None);
-    entry_format_preview.add_css_class("dim-label");
-    entry_format_preview.set_halign(gtk::Align::End);
-    entry_format_row.add_suffix(&entry_format_preview);
-
-    let initial_format = if entry_datetime_format.trim().is_empty() {
-        ENTRY_DATETIME_FORMAT_DEFAULT
-    } else {
-        entry_datetime_format.trim()
-    };
-    entry_format_preview.set_text(&preview_datetime_format(initial_format));
-
-    let app_for_entry_format = app.clone();
-    entry_format_row.connect_text_notify(move |row| {
-        let text = row.text();
-        let normalized = if text.trim().is_empty() {
-            ENTRY_DATETIME_FORMAT_DEFAULT
-        } else {
-            text.trim()
-        };
-
-        let _ = settings::set_str(settings::SETTINGS_ENTRY_DATETIME_FORMAT_KEY, normalized);
-
-        entry_format_preview.set_text(&preview_datetime_format(normalized));
-
-        if let Some(window) = app_for_entry_format.active_window() {
-            if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                window.refresh_entry_datetime_format();
-            }
-        }
-    });
-
-    group.add(&entry_format_row);
-
-    let repository_group = adw::PreferencesGroup::builder()
-        .title(crate::i18n::repository_group_title())
-        .description(crate::i18n::repository_group_description())
-        .build();
-
-    let current_repo_path = settings::get_str(settings::SETTINGS_REPOSITORY_PATH_KEY);
-
-    // "This computer": the connected diary's local folder.
-    let change_row = adw::ActionRow::builder()
-        .title(crate::i18n::this_computer())
-        .activatable(true)
-        .sensitive(!current_repo_path.is_empty())
-        .build();
-    if !current_repo_path.is_empty() {
-        change_row.set_subtitle(&current_repo_path);
-    } else {
-        change_row.set_subtitle(crate::i18n::no_repository_connected().as_str());
-    }
-    {
-        let app_window = app_window.clone();
-        let captured_path = current_repo_path.clone();
-        // Clicking the row itself opens the journal folder.
-        change_row.connect_activated(move |_| {
-            let file = gio::File::for_path(&captured_path);
-            gtk::FileLauncher::new(Some(&file)).open_containing_folder(
-                app_window.as_ref(),
-                None::<&gio::Cancellable>,
-                |_| {},
-            );
-        });
-    }
-    let change_button = gtk::Button::builder()
-        .icon_name("folder-visiting-symbolic")
-        .tooltip_text(crate::i18n::change_action_label())
-        .valign(gtk::Align::Center)
-        .css_classes(vec!["flat".to_string()])
-        .build();
-    if let Some(app_window) = app_window.clone() {
-        change_button.connect_clicked(move |_| {
-            app_window.pick_repository_and_connect();
-        });
-    }
-    change_row.add_suffix(&change_button);
-    repository_group.add(&change_row);
-
-    // "From a server": replace the current diary with a fresh clone.
-    let clone_row = adw::ActionRow::builder()
-        .title(crate::i18n::from_server())
-        .activatable(true)
-        .build();
-    clone_row.set_subtitle(crate::i18n::clone_from_server_subtitle().as_str());
-    if let Some(app_window) = app_window.clone() {
-        clone_row.connect_activated(move |_| {
-            app_window.open_clone_dialog();
-        });
-    }
-    let clone_button = gtk::Button::builder()
-        .icon_name("emblem-synchronizing-symbolic")
-        .tooltip_text(crate::i18n::clone_action_tooltip())
-        .valign(gtk::Align::Center)
-        .css_classes(vec!["flat".to_string()])
-        .build();
-    if let Some(app_window) = app_window.clone() {
-        clone_button.connect_clicked(move |_| {
-            app_window.open_clone_dialog();
-        });
-    }
-    clone_row.add_suffix(&clone_button);
-    repository_group.add(&clone_row);
-
-    page.add(&repository_group);
-    page.add(&group);
-    page.add(&font_group);
-    page.add(&font_size_group);
-    prefs.add(&page);
+    prefs.add(&general_page);
+    prefs.add(&repository_page);
+    prefs.add(&editor_page);
     prefs.present(Some(&window));
 }

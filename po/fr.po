@@ -86,12 +86,12 @@ msgid "Journal repository path selected during setup."
 msgstr "Chemin du dépôt du journal choisi pendant la configuration."
 
 #: data/io.github.enfff.Diary.gschema.xml:11
-msgid "Enable confetti mode"
-msgstr "Activer le mode confettis"
+msgid "Enable auto-save"
+msgstr "Activer l’enregistrement automatique"
 
 #: data/io.github.enfff.Diary.gschema.xml:12
-msgid "Mock preference used for prototype preferences window."
-msgstr "Préférence factice pour la fenêtre de préférences du prototype."
+msgid "Save the current note automatically when you leave it."
+msgstr "Enregistre automatiquement la note actuelle lorsque vous la quittez."
 
 #: data/io.github.enfff.Diary.gschema.xml:16
 msgid "Open editor in viewer mode"
@@ -296,3 +296,15 @@ msgstr "Choisir le dossier du dépôt"
 #: src/i18n.rs:122
 msgid "Unresolved sync conflict"
 msgstr "Conflit de synchronisation non résolu"
+
+#: src/i18n.rs:127
+msgid "General"
+msgstr "Général"
+
+#: src/i18n.rs:135
+msgid "Auto-save"
+msgstr "Enregistrement automatique"
+
+#: src/i18n.rs:139
+msgid "Save the current note when you leave it."
+msgstr "Enregistre la note actuelle lorsque vous la quittez."

@@ -6,10 +6,10 @@
 			<summary>Selected repository path</summary>
 			<description>Journal repository path selected during setup.</description>
 		</key>
-		<key name="enable-confetti-mode" type="b">
+		<key name="enable-auto-save" type="b">
 			<default>true</default>
-			<summary>Enable confetti mode</summary>
-			<description>Mock preference used for prototype preferences window.</description>
+			<summary>Enable auto-save</summary>
+			<description>Save the current note automatically when you leave it.</description>
 		</key>
 		<key name="editor-viewer-mode" type="b">
 			<default>false</default>

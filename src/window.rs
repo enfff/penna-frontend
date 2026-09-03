@@ -153,6 +153,7 @@ mod imp {
         pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
         pub modified: RefCell<bool>,
+        pub pending_close: RefCell<bool>,
         pub conflict_widgets: RefCell<Vec<gtk::Box>>,
         pub conflicted_entry_ids: RefCell<Vec<String>>,
     }
@@ -201,6 +202,7 @@ mod imp {
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
+                pending_close: RefCell::default(),
                 conflict_widgets: RefCell::default(),
                 conflicted_entry_ids: RefCell::default(),
             }
@@ -231,7 +233,31 @@ mod imp {
         }
     }
     impl WidgetImpl for PennaFrontendWindow {}
-    impl WindowImpl for PennaFrontendWindow {}
+
+    impl WindowImpl for PennaFrontendWindow {
+        fn close_request(&self) -> glib::Propagation {
+            if *self.pending_close.borrow() {
+                return glib::Propagation::Stop;
+            }
+
+            let needs_save = settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY)
+                && *self.modified.borrow()
+                && self.current_handle.borrow().is_some()
+                && self.current_entry_id.borrow().is_some();
+
+            if needs_save {
+                *self.pending_close.borrow_mut() = true;
+                if self.obj().save_current_entry() {
+                    return glib::Propagation::Stop;
+                }
+
+                *self.pending_close.borrow_mut() = false;
+            }
+
+            glib::Propagation::Proceed
+        }
+    }
+
     impl ApplicationWindowImpl for PennaFrontendWindow {}
     impl AdwApplicationWindowImpl for PennaFrontendWindow {}
 }
@@ -280,7 +306,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_, _| {
-                window.save_current_entry();
+                let _ = window.save_current_entry();
             }
         ));
         self.add_action(&save);
@@ -614,6 +640,7 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
+                window.cancel_pending_close();
                 window.apply_markdown_styling();
                 window.update_conflict_actions();
                 window.set_entry_modified(true);
@@ -1298,6 +1325,11 @@ impl PennaFrontendWindow {
         run_initial_sync: bool,
     ) {
         let imp = self.imp();
+        self.cancel_pending_close();
+        self.autosave_if_modified();
+        *imp.current_entry_id.borrow_mut() = None;
+        imp.current_entry_tags.borrow_mut().clear();
+        self.set_entry_modified(false);
         *imp.current_handle.borrow_mut() = Some(result.journal_handle);
         let _ =
             settings::set_str(settings::SETTINGS_REPOSITORY_PATH_KEY, &result.repo_path);
@@ -1615,6 +1647,12 @@ impl PennaFrontendWindow {
             return false;
         };
 
+        let same_entry = imp.current_entry_id.borrow().as_deref() == Some(entry_id);
+        self.cancel_pending_close();
+        if !same_entry {
+            self.autosave_if_modified();
+        }
+
         *imp.current_entry_id.borrow_mut() = Some(entry_id.to_string());
         *imp.current_entry_tags.borrow_mut() = entry.tags.clone();
         self.update_window_title(Some(entry_id));
@@ -1641,17 +1679,40 @@ impl PennaFrontendWindow {
         self.open_entry(&entry_id);
     }
 
-    fn save_current_entry(&self) {
+    fn autosave_if_modified(&self) {
+        let imp = self.imp();
+        if *imp.modified.borrow() && settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY) {
+            let _ = self.save_current_entry();
+        }
+    }
+
+    fn cancel_pending_close(&self) {
+        if *self.imp().pending_close.borrow() {
+            *self.imp().pending_close.borrow_mut() = false;
+        }
+    }
+
+    fn finish_pending_close(&self) {
+        let imp = self.imp();
+        if !*imp.pending_close.borrow() {
+            return;
+        }
+
+        *imp.pending_close.borrow_mut() = false;
+        self.close();
+    }
+
+    fn save_current_entry(&self) -> bool {
         let imp = self.imp();
         let Some(handle) = *imp.current_handle.borrow() else {
             imp.sync_status_label
                 .set_label(&i18n::connect_repository_before_saving());
-            return;
+            return false;
         };
 
         let Some(entry_id) = imp.current_entry_id.borrow().clone() else {
             imp.sync_status_label.set_label(&i18n::no_entry_selected());
-            return;
+            return false;
         };
 
         let buffer = imp.editor_view.buffer();
@@ -1666,7 +1727,7 @@ impl PennaFrontendWindow {
             let toast = adw::Toast::new(&i18n::unresolved_conflicts(unresolved));
             toast.set_priority(adw::ToastPriority::High);
             imp.toast_overlay.add_toast(toast);
-            return;
+            return false;
         }
 
         let tags = imp.current_entry_tags.borrow().clone();
@@ -1699,10 +1760,10 @@ impl PennaFrontendWindow {
                             .as_deref()
                             != Some(entry_id.as_str())
                         {
+                            window.finish_pending_close();
                             return;
                         }
                         window.set_entry_modified(false);
-                        window.show_editor_view();
                         window.imp().sync_status_label.set_label(&i18n::saved());
                         // Saving content leaves the (hidden) grid rows
                         // unchanged, so no grid rebuild. Only conclude a
@@ -1712,13 +1773,17 @@ impl PennaFrontendWindow {
                                 window.maybe_conclude_merge();
                             }
                         }
+                        window.finish_pending_close();
                     }
                     Err(err) => {
                         window.imp().sync_status_label.set_label(&err);
+                        window.finish_pending_close();
                     }
                 }
             ),
         );
+
+        true
     }
 
     fn create_new_entry(&self) {
@@ -1727,17 +1792,27 @@ impl PennaFrontendWindow {
             return;
         };
 
+        self.cancel_pending_close();
+
         // One note per day: if today already has an entry, redirect to it
         // instead of creating a duplicate.
         let today = chrono::Local::now().format("%Y%m%d").to_string();
         let existing = Self::entry_id_for_day(&sync::list_entries(self, handle), &today);
 
         if let Some(existing) = existing {
-            let toast = adw::Toast::new(&i18n::opened_todays_note());
-            imp.toast_overlay.add_toast(toast);
+            if imp.current_entry_id.borrow().as_deref() == Some(existing.as_str()) {
+                let toast = adw::Toast::new(&i18n::opened_todays_note());
+                imp.toast_overlay.add_toast(toast);
+                self.show_editor_view();
+                return;
+            }
+
+            // Switching to another note saves the one being left first.
             self.open_entry(&existing);
             return;
         }
+
+        self.autosave_if_modified();
 
         let record = match sync::create_entry_new(self, handle) {
             Ok(record) => record,
@@ -1762,6 +1837,7 @@ impl PennaFrontendWindow {
 
     fn delete_current_entry(&self) {
         let imp = self.imp();
+        self.cancel_pending_close();
         let Some(handle) = *imp.current_handle.borrow() else {
             imp.sync_status_label
                 .set_label(&i18n::connect_repository_before_deleting());
@@ -3445,6 +3521,8 @@ impl PennaFrontendWindow {
 
     pub(crate) fn show_grid_view(&self) {
         let imp = self.imp();
+        self.cancel_pending_close();
+        self.autosave_if_modified();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = true;
         self.set_editor_only_actions_enabled(false);
@@ -3475,6 +3553,8 @@ impl PennaFrontendWindow {
 
     fn show_setup_page(&self) {
         let imp = self.imp();
+        self.cancel_pending_close();
+        self.autosave_if_modified();
         *imp.in_editor_view.borrow_mut() = false;
         *imp.in_notes_grid_view.borrow_mut() = false;
         self.set_editor_only_actions_enabled(false);
