@@ -268,7 +268,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     };
     let initial_custom_family = glib::markup_escape_text(initial_custom_family);
     custom_preview.set_markup(&format!(
-        "<span font_family=\"{}\" size=\"xx-large\" weight=\"bold\">Ab</span>",
+        "<span font_desc=\"{} Bold 42\">Ab</span>",
         initial_custom_family
     ));
     custom_preview.set_justify(gtk::Justification::Center);
@@ -448,7 +448,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
 
         let family_markup = glib::markup_escape_text(&family);
         custom_preview_for_family.set_markup(&format!(
-            "<span font_family=\"{}\" size=\"xx-large\" weight=\"bold\">Ab</span>",
+            "<span font_desc=\"{} Bold 42\">Ab</span>",
             family_markup
         ));
 
