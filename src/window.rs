@@ -37,10 +37,10 @@ use crate::conflict::{
 };
 use crate::editor;
 use crate::editor::{
-    TAG_BLOCKQUOTE, TAG_BOLD, TAG_CHECKED, TAG_CODE, TAG_CODE_BLOCK, TAG_CONFLICT_CURRENT,
-    TAG_CONFLICT_INCOMING, TAG_CONFLICT_MARKER, TAG_HEADING_1, TAG_HEADING_2, TAG_HEADING_3,
-    TAG_HEADING_4, TAG_ITALIC, TAG_LINK, TAG_LIST_ITEM, TAG_LIST_MARKER, TAG_RULE,
-    TAG_STRIKETHROUGH, TAG_SYNTAX,
+    RuleTextView, TAG_BLOCKQUOTE, TAG_BOLD, TAG_CHECKED, TAG_CODE, TAG_CODE_BLOCK,
+    TAG_CONFLICT_CURRENT, TAG_CONFLICT_INCOMING, TAG_CONFLICT_MARKER, TAG_HEADING_1,
+    TAG_HEADING_2, TAG_HEADING_3, TAG_HEADING_4, TAG_ITALIC, TAG_LINK, TAG_LIST_ITEM,
+    TAG_LIST_MARKER, TAG_RULE, TAG_STRIKETHROUGH, TAG_SYNTAX,
 };
 use crate::engine::{
     ConnectResult, EngineMock, EngineOpError, EntrySnapshot, EntrySummary, JournalHandle,
@@ -131,7 +131,7 @@ mod imp {
         #[template_child]
         pub notes_empty_button: TemplateChild<gtk::Button>,
         #[template_child]
-        pub editor_view: TemplateChild<gtk::TextView>,
+        pub editor_view: TemplateChild<RuleTextView>,
         #[template_child]
         pub header_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
@@ -2964,6 +2964,7 @@ impl PennaFrontendWindow {
 
         let mut line_start_offset = 0usize;
         let mut previous_line: Option<(usize, usize)> = None;
+        let mut rule_lines: Vec<(i32, i32)> = Vec::new();
 
         for (line, class) in lines.iter().zip(classes.iter().copied()) {
             let line_end_offset = line_start_offset + line.chars().count();
@@ -3040,7 +3041,13 @@ impl PennaFrontendWindow {
                 }
                 markdown::LineClass::ThematicBreak => {
                     // Thin separator only: a break line never picks up
-                    // heading or list styling.
+                    // heading or list styling. The visible hairline itself is
+                    // painted by RuleTextView; the tag hides the markers and
+                    // keeps the row short.
+                    rule_lines.push((
+                        line_start_offset as i32,
+                        line_end_offset as i32,
+                    ));
                     Self::apply_tag_by_offset(
                         &buffer,
                         TAG_RULE,
@@ -3107,6 +3114,7 @@ impl PennaFrontendWindow {
             line_start_offset = line_end_offset + 1;
         }
 
+        imp.editor_view.set_rule_lines(rule_lines);
         Self::apply_conflict_styling(&buffer, &text);
     }
 

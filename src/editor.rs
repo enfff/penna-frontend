@@ -7,6 +7,7 @@
 //! operates on those through the window reference.
 
 use gtk::gdk;
+use gtk::glib;
 use gtk::pango;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -345,9 +346,13 @@ pub fn setup_editor_tags(window: &PennaFrontendWindow) {
             .name(TAG_RULE)
             .foreground_rgba(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0))
             .scale(0.1)
-            .line_height(0.25)
-            .paragraph_background_rgba(&gdk::RGBA::new(0.78, 0.78, 0.78, 1.0))
-            .paragraph_background_set(true)
+            .line_height(0.06)
+            // The editor text view carries pixels-below-lines: 8 (window.ui);
+            // the rule paragraph zeroes its own spacing so the separator
+            // row (painted by RuleTextView::snapshot) stays hairline-thin.
+            .pixels_above_lines(0)
+            .pixels_below_lines(0)
+            .pixels_inside_wrap(0)
             .build(),
     );
     add_tag(
@@ -375,4 +380,88 @@ pub fn setup_editor_tags(window: &PennaFrontendWindow) {
             .style(pango::Style::Italic)
             .build(),
     );
+}
+
+mod imp {
+    use std::cell::RefCell;
+
+    use gtk::gdk;
+    use gtk::glib;
+    use gtk::prelude::*;
+    use gtk::subclass::prelude::*;
+
+    #[derive(Default)]
+    pub struct RuleTextView {
+        pub(super) rule_lines: RefCell<Vec<(i32, i32)>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for RuleTextView {
+        const NAME: &'static str = "DiaryRuleTextView";
+        type Type = super::RuleTextView;
+        type ParentType = gtk::TextView;
+    }
+
+    impl ObjectImpl for RuleTextView {}
+
+    impl WidgetImpl for RuleTextView {
+        fn snapshot(&self, snapshot: &gtk::Snapshot) {
+            self.parent_snapshot(snapshot);
+
+            let view = self.obj();
+            let lines = self.rule_lines.borrow();
+            if lines.is_empty() {
+                return;
+            }
+
+            let bar_width = (view.width() - view.left_margin() - view.right_margin()) as f32;
+            if bar_width <= 0.0 {
+                return;
+            }
+            let bar_x = view.left_margin() as f32;
+
+            // Theme foreground, dimmed: follows light/dark automatically.
+            #[allow(deprecated)]
+            let mut base = view.style_context().color();
+            base.set_alpha(base.alpha() * 0.2);
+            let edge = gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.0);
+            let core = gdk::RGBA::new(base.red(), base.green(), base.blue(), base.alpha());
+            let stops = [
+                gtk::gsk::ColorStop::new(0.0, edge),
+                gtk::gsk::ColorStop::new(0.05, core),
+                gtk::gsk::ColorStop::new(0.95, core),
+                gtk::gsk::ColorStop::new(1.0, edge),
+            ];
+
+            let buffer = view.buffer();
+            for (start, _) in lines.iter() {
+                let loc = view.iter_location(&buffer.iter_at_offset(*start));
+                let row_h = loc.height() as f32;
+                let center = loc.y() as f32 + row_h / 2.0;
+                let bar_h = row_h.max(2.0);
+                let rect = gtk::graphene::Rect::new(bar_x, center - bar_h / 2.0, bar_width, bar_h);
+                let from = gtk::graphene::Point::new(bar_x, 0.0);
+                let to = gtk::graphene::Point::new(bar_x + bar_width, 0.0);
+                snapshot.append_linear_gradient(&rect, &from, &to, &stops);
+            }
+        }
+    }
+
+    impl TextViewImpl for RuleTextView {}
+}
+
+glib::wrapper! {
+    pub struct RuleTextView(ObjectSubclass<imp::RuleTextView>)
+        @extends gtk::TextView, gtk::Widget,
+        @implements gtk::gio::ActionGroup, gtk::gio::ActionMap, gtk::Accessible,
+            gtk::Buildable, gtk::ConstraintTarget, gtk::Scrollable;
+}
+
+impl RuleTextView {
+    /// Registers the character-offset ranges that should render as fading
+    /// separators, replacing any previous set.
+    pub fn set_rule_lines(&self, lines: Vec<(i32, i32)>) {
+        self.imp().rule_lines.replace(lines);
+        self.queue_draw();
+    }
 }

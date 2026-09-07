@@ -354,7 +354,7 @@
                                 <property name="margin-start">20</property>
                                 <property name="margin-end">20</property>
                                 <property name="child">
-                                  <object class="GtkTextView" id="editor_view">
+                                  <object class="DiaryRuleTextView" id="editor_view">
                                     <property name="wrap-mode">word-char</property>
                                     <property name="monospace">False</property>
                                     <property name="pixels-above-lines">2</property>
