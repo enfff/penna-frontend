@@ -49,6 +49,7 @@ use crate::engine::{
 use crate::format;
 use crate::gestures;
 use crate::grid;
+use crate::markdown;
 use crate::settings;
 use crate::sync;
 
@@ -57,11 +58,6 @@ const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
 const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
 const ACTION_CONFLICT_ACCEPT_BOTH: &str = "conflict-accept-both";
-
-struct CheckboxItem {
-    marker_len: usize,
-    checked: bool,
-}
 
 struct LinkMatch {
     label_len: usize,
@@ -2963,123 +2959,151 @@ impl PennaFrontendWindow {
         buffer.remove_all_tags(&start, &end);
 
         let text = buffer.text(&start, &end, true).to_string();
-        let mut line_start_offset = 0usize;
-        let mut in_code_block = false;
+        let lines: Vec<&str> = text.lines().collect();
+        let classes = markdown::classify_lines(&text);
 
-        for line in text.lines() {
-            let line_char_len = line.chars().count();
-            let line_end_offset = line_start_offset + line_char_len;
+        let mut line_start_offset = 0usize;
+        let mut previous_line: Option<(usize, usize)> = None;
+
+        for (line, class) in lines.iter().zip(classes.iter().copied()) {
+            let line_end_offset = line_start_offset + line.chars().count();
             let line_trimmed = line.trim_end();
 
-            if line_trimmed.starts_with("```") {
-                in_code_block = !in_code_block;
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_CODE_BLOCK,
-                    line_start_offset,
-                    line_end_offset,
-                );
-                Self::apply_tag_by_offset(&buffer, TAG_SYNTAX, line_start_offset, line_end_offset);
-                line_start_offset = line_end_offset + 1;
-                continue;
+            match class {
+                markdown::LineClass::Blank => {}
+                markdown::LineClass::CodeFence => {
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_CODE_BLOCK,
+                        line_start_offset,
+                        line_end_offset,
+                    );
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_SYNTAX,
+                        line_start_offset,
+                        line_end_offset,
+                    );
+                }
+                markdown::LineClass::CodeLine => {
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_CODE_BLOCK,
+                        line_start_offset,
+                        line_end_offset,
+                    );
+                }
+                markdown::LineClass::Heading {
+                    level,
+                    marker_len,
+                } => {
+                    let tag = match level {
+                        1 => TAG_HEADING_1,
+                        2 => TAG_HEADING_2,
+                        3 => TAG_HEADING_3,
+                        _ => TAG_HEADING_4,
+                    };
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_SYNTAX,
+                        line_start_offset,
+                        line_start_offset + marker_len,
+                    );
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        tag,
+                        line_start_offset + marker_len,
+                        line_end_offset,
+                    );
+                }
+                markdown::LineClass::SetextUnderline { level } => {
+                    // The heading text is the previous line; the underline
+                    // itself is hidden, the way ATX markers are.
+                    if let Some((previous_start, previous_end)) = previous_line {
+                        let tag = match level {
+                            1 => TAG_HEADING_1,
+                            _ => TAG_HEADING_2,
+                        };
+                        Self::apply_tag_by_offset(
+                            &buffer,
+                            tag,
+                            previous_start,
+                            previous_end,
+                        );
+                    }
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_SYNTAX,
+                        line_start_offset,
+                        line_end_offset,
+                    );
+                }
+                markdown::LineClass::ThematicBreak => {
+                    // Thin separator only: a break line never picks up
+                    // heading or list styling.
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_RULE,
+                        line_start_offset,
+                        line_end_offset,
+                    );
+                }
+                markdown::LineClass::Blockquote => {
+                    if let Some(content) = line_trimmed.strip_prefix("> ") {
+                        let prefix_len = line_trimmed.chars().count() - content.chars().count();
+                        Self::apply_tag_by_offset(
+                            &buffer,
+                            TAG_SYNTAX,
+                            line_start_offset,
+                            line_start_offset + prefix_len,
+                        );
+                        Self::apply_tag_by_offset(
+                            &buffer,
+                            TAG_BLOCKQUOTE,
+                            line_start_offset + prefix_len,
+                            line_end_offset,
+                        );
+                    }
+                }
+                markdown::LineClass::Checkbox { marker_len, .. }
+                | markdown::LineClass::Unordered { marker_len } => {
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_LIST_MARKER,
+                        line_start_offset,
+                        line_start_offset + marker_len,
+                    );
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_LIST_ITEM,
+                        line_start_offset + marker_len,
+                        line_end_offset,
+                    );
+                }
+                markdown::LineClass::Ordered { marker_len } => {
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_LIST_ITEM,
+                        line_start_offset,
+                        line_end_offset,
+                    );
+                    Self::apply_tag_by_offset(
+                        &buffer,
+                        TAG_LIST_MARKER,
+                        line_start_offset,
+                        line_start_offset + marker_len,
+                    );
+                }
+                markdown::LineClass::Paragraph => {}
             }
 
-            if in_code_block {
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_CODE_BLOCK,
-                    line_start_offset,
-                    line_end_offset,
-                );
-                line_start_offset = line_end_offset + 1;
-                continue;
+            // Code fences and code lines skip the inline pass, as before
+            // the classification extraction: inline markers inside code
+            // blocks are literal text, not markdown.
+            if !matches!(class, markdown::LineClass::CodeFence | markdown::LineClass::CodeLine) {
+                Self::apply_inline_markdown_tags(&buffer, line, line_start_offset);
             }
-
-            if let Some((level, marker_len)) = Self::parse_heading(line_trimmed) {
-                let tag = match level {
-                    1 => TAG_HEADING_1,
-                    2 => TAG_HEADING_2,
-                    3 => TAG_HEADING_3,
-                    _ => TAG_HEADING_4,
-                };
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_SYNTAX,
-                    line_start_offset,
-                    line_start_offset + marker_len,
-                );
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    tag,
-                    line_start_offset + marker_len,
-                    line_end_offset,
-                );
-            }
-
-            if let Some(content) = line_trimmed.strip_prefix("> ") {
-                let prefix_len = line_trimmed.chars().count() - content.chars().count();
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_SYNTAX,
-                    line_start_offset,
-                    line_start_offset + prefix_len,
-                );
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_BLOCKQUOTE,
-                    line_start_offset + prefix_len,
-                    line_end_offset,
-                );
-            }
-
-            if let Some(marker_len) =
-                Self::parse_checkbox_item(line_trimmed).map(|item| item.marker_len)
-            {
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_LIST_MARKER,
-                    line_start_offset,
-                    line_start_offset + marker_len,
-                );
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_LIST_ITEM,
-                    line_start_offset + marker_len,
-                    line_end_offset,
-                );
-            } else if let Some(marker_len) = Self::parse_unordered_list_item(line_trimmed) {
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_LIST_MARKER,
-                    line_start_offset,
-                    line_start_offset + marker_len,
-                );
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_LIST_ITEM,
-                    line_start_offset + marker_len,
-                    line_end_offset,
-                );
-            } else if let Some(marker_len) = Self::parse_ordered_list_item(line_trimmed) {
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_LIST_ITEM,
-                    line_start_offset,
-                    line_end_offset,
-                );
-                Self::apply_tag_by_offset(
-                    &buffer,
-                    TAG_LIST_MARKER,
-                    line_start_offset,
-                    line_start_offset + marker_len,
-                );
-            }
-
-            if Self::is_horizontal_rule(line_trimmed) {
-                Self::apply_tag_by_offset(&buffer, TAG_RULE, line_start_offset, line_end_offset);
-            }
-
-            Self::apply_inline_markdown_tags(&buffer, line, line_start_offset);
+            previous_line = Some((line_start_offset, line_end_offset));
             line_start_offset = line_end_offset + 1;
         }
 
@@ -3359,48 +3383,6 @@ impl PennaFrontendWindow {
         self.refresh_conflict_widgets();
     }
 
-    fn parse_heading(line: &str) -> Option<(usize, usize)> {
-        let hashes = line.chars().take_while(|ch| *ch == '#').count();
-        if hashes == 0 || hashes > 6 {
-            return None;
-        }
-
-        line.get(hashes..)
-            .and_then(|rest| rest.strip_prefix(' '))
-            .map(|_| (hashes, hashes + 1))
-    }
-
-    fn parse_unordered_list_item(line: &str) -> Option<usize> {
-        ["• ", "- ", "* ", "+ "]
-            .into_iter()
-            .find_map(|prefix| line.strip_prefix(prefix).map(|_| prefix.chars().count()))
-    }
-
-    fn parse_ordered_list_item(line: &str) -> Option<usize> {
-        let dot_index = line.find(". ")?;
-        let (number, rest) = line.split_at(dot_index);
-        if number.chars().all(|ch| ch.is_ascii_digit()) {
-            rest.strip_prefix(". ")
-                .map(|_| line[..(dot_index + 2)].chars().count())
-        } else {
-            None
-        }
-    }
-
-    fn parse_checkbox_item(line: &str) -> Option<CheckboxItem> {
-        [
-            "- [ ] ", "* [ ] ", "+ [ ] ", "- [x] ", "* [x] ", "+ [x] ", "- [X] ", "* [X] ",
-            "+ [X] ",
-        ]
-        .into_iter()
-        .find_map(|prefix| {
-            line.strip_prefix(prefix).map(|_| CheckboxItem {
-                marker_len: prefix.chars().count(),
-                checked: matches!(prefix.as_bytes().get(3), Some(b'x' | b'X')),
-            })
-        })
-    }
-
     fn expand_code_block_from_backticks(&self) -> bool {
         let imp = self.imp();
         if *imp.editor_viewer_mode.borrow() {
@@ -3458,20 +3440,6 @@ impl PennaFrontendWindow {
             label_len: text[1..close_label].chars().count(),
             total_len: text[..total_byte_len].chars().count(),
         })
-    }
-
-    fn is_horizontal_rule(line: &str) -> bool {
-        let compact: String = line.chars().filter(|ch| !ch.is_whitespace()).collect();
-        if compact.len() < 3 {
-            return false;
-        }
-
-        let mut chars = compact.chars();
-        let Some(first) = chars.next() else {
-            return false;
-        };
-
-        matches!(first, '-' | '*' | '_') && chars.all(|ch| ch == first)
     }
 
     fn apply_inline_markdown_tags(buffer: &gtk::TextBuffer, line: &str, line_start_offset: usize) {
@@ -3625,12 +3593,12 @@ impl PennaFrontendWindow {
             index += 1;
         }
 
-        if let Some(item) = Self::parse_checkbox_item(line) {
-            if item.checked {
+        if let Some((marker_len, checked)) = markdown::parse_checkbox_item(line) {
+            if checked {
                 Self::apply_tag_by_offset(
                     buffer,
                     TAG_CHECKED,
-                    line_start_offset + item.marker_len,
+                    line_start_offset + marker_len,
                     line_start_offset + line.chars().count(),
                 );
             }

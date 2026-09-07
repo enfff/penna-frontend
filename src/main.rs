@@ -28,6 +28,7 @@ mod format;
 mod gestures;
 mod grid;
 mod i18n;
+mod markdown;
 mod preferences;
 mod settings;
 mod sync;
