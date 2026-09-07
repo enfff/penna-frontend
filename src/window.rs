@@ -169,6 +169,7 @@ mod imp {
         pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
         pub modified: RefCell<bool>,
+        pub content_revision: Cell<u64>,
         pub tag_overflow_last_width: Cell<i32>,
         pub(super) pending_leave: PendingLeave,
         pub conflict_widgets: RefCell<Vec<gtk::Box>>,
@@ -219,6 +220,7 @@ mod imp {
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
+                content_revision: Cell::default(),
                 tag_overflow_last_width: Cell::default(),
                 pending_leave: NoDebug::default(),
                 conflict_widgets: RefCell::default(),
@@ -663,7 +665,8 @@ impl PennaFrontendWindow {
             #[weak(rename_to = window)]
             self,
             move |_| {
-                window.cancel_pending_leave();
+                let imp = window.imp();
+                imp.content_revision.set(imp.content_revision.get().saturating_add(1));
                 window.apply_markdown_styling();
                 window.update_conflict_actions();
                 window.set_entry_modified(true);
@@ -1766,8 +1769,11 @@ impl PennaFrontendWindow {
     }
 
     fn prompt_unsaved_changes_or_autosave(&self) {
-        if settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY) {
-            let _ = self.save_current_entry();
+        // Auto-save proceeds only when the save actually starts; its
+        // completion callback finishes the leave. If the save can't start
+        // (no repository, or unresolved conflicts) we fall back to the dialog
+        // so the user can choose rather than being stranded.
+        if settings::get_bool(settings::SETTINGS_AUTO_SAVE_KEY) && self.save_current_entry() {
         } else {
             self.show_unsaved_changes_dialog();
         }
@@ -1846,6 +1852,9 @@ impl PennaFrontendWindow {
         }
 
         let tags = imp.current_entry_tags.borrow().clone();
+        // Snapshot the content revision so the async completion can tell a
+        // fresh save from one that landed after the user edited again.
+        let snapshot_revision = imp.content_revision.get();
 
         // The git commit runs off the main thread so the window never freezes;
         // the result is applied on the main thread once it lands.
@@ -1866,20 +1875,30 @@ impl PennaFrontendWindow {
                 self,
                 move |outcome: SaveOutcome| match outcome.result {
                     Ok(()) => {
-                        // Ignore a save that landed after the user moved on to
-                        // another note.
-                        if window
-                            .imp()
+                        let imp = window.imp();
+                        // A save only lets us proceed with a pending leave if
+                        // it still reflects the current note AND the buffer
+                        // hasn't been re-edited since we snapshotted it.
+                        if imp
                             .current_entry_id
                             .borrow()
                             .as_deref()
                             != Some(entry_id.as_str())
                         {
+                            // User already moved on; let the newest queued
+                            // leave run.
                             window.finish_pending_leave();
                             return;
                         }
+                        if imp.content_revision.get() != snapshot_revision {
+                            // Re-edited after the snapshot: the commit is
+                            // stale. Stay on this note (cancel the deferred
+                            // leave) so the fresh text is never lost.
+                            window.cancel_pending_leave();
+                            return;
+                        }
                         window.set_entry_modified(false);
-                        window.imp().sync_status_label.set_label(&i18n::saved());
+                        imp.sync_status_label.set_label(&i18n::saved());
                         // Saving content leaves the (hidden) grid rows
                         // unchanged, so no grid rebuild. Only conclude a
                         // merge if one is actually in flight.
@@ -1891,8 +1910,11 @@ impl PennaFrontendWindow {
                         window.finish_pending_leave();
                     }
                     Err(err) => {
+                        // A failed save must not proceed with the leave — that
+                        // would discard the very changes we're guarding. Stay
+                        // put (and keep `modified`) so the user can retry.
                         window.imp().sync_status_label.set_label(&err);
-                        window.finish_pending_leave();
+                        window.cancel_pending_leave();
                     }
                 }
             ),
