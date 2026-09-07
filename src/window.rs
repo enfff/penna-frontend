@@ -26,7 +26,7 @@ use gtk::{gdk, gio, glib};
 
 use crate::i18n;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -169,6 +169,7 @@ mod imp {
         pub last_undo_generation: RefCell<u32>,
         pub editor_viewer_mode: RefCell<bool>,
         pub modified: RefCell<bool>,
+        pub tag_overflow_last_width: Cell<i32>,
         pub(super) pending_leave: PendingLeave,
         pub conflict_widgets: RefCell<Vec<gtk::Box>>,
         pub conflicted_entry_ids: RefCell<Vec<String>>,
@@ -218,6 +219,7 @@ mod imp {
                 editor_viewer_mode: RefCell::default(),
                 last_undo_generation: RefCell::default(),
                 modified: RefCell::default(),
+                tag_overflow_last_width: Cell::default(),
                 pending_leave: NoDebug::default(),
                 conflict_widgets: RefCell::default(),
                 conflicted_entry_ids: RefCell::default(),
@@ -246,6 +248,7 @@ mod imp {
             let obj = self.obj();
             obj.setup_actions();
             obj.setup_callbacks();
+            grid::connect_tag_overflow(&obj);
         }
     }
     impl WidgetImpl for PennaFrontendWindow {}

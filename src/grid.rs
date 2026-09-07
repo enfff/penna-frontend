@@ -6,6 +6,7 @@
 //! plain logic layered on top of them.
 
 use gtk::glib;
+use gtk::glib::prelude::*;
 use gtk::pango;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -16,7 +17,8 @@ use crate::i18n;
 use crate::sync;
 use crate::window::PennaFrontendWindow;
 
-const NOTE_ROW_TAGS_MAX_CHARS: usize = 28;
+const TAG_ROW_SPACING: i32 = 6;
+const TAG_ROW_HORIZONTAL_SLACK: i32 = 24;
 
 struct GridData {
     entries: Vec<EntrySummary>,
@@ -130,13 +132,15 @@ fn build_grid_rows(window: &PennaFrontendWindow, data: GridData, query: &str) {
         leading_box.append(&note_label);
         row_box.set_start_widget(Some(&leading_box));
         if !entry.tags.is_empty() {
-            for tag in visible_tags_for_row(&entry.tags) {
+            for tag in &entry.tags {
                 tags_inner.append(&build_tag_chip(tag));
             }
-            let hidden_tags = hidden_tag_count_for_row(&entry.tags);
-            if hidden_tags > 0 {
-                tags_inner.append(&build_tag_chip(&format!("+{hidden_tags}")));
+            if entry.tags.len() > 1 {
+                let plus_chip = build_tag_chip(&format!("+{}", entry.tags.len() - 1));
+                plus_chip.set_visible(false);
+                tags_inner.append(&plus_chip);
             }
+            set_widget_data(&button, "penna-note-tag-count", entry.tags.len());
         }
         row_box.set_end_widget(Some(&tags_box));
         button.set_child(Some(&row_box));
@@ -183,6 +187,14 @@ fn build_grid_rows(window: &PennaFrontendWindow, data: GridData, query: &str) {
             button.grab_focus();
         }
     }
+
+    glib::idle_add_local_once(glib::clone!(
+        #[weak(rename_to = window)]
+        window,
+        move || {
+            update_tag_overflow(&window);
+        }
+    ));
 
     if let Some(status) = &data.status {
         imp.sync_status_label.set_label(&status_details(status));
@@ -385,35 +397,243 @@ pub fn update_notes_search_reveal(window: &PennaFrontendWindow) {
     imp.notes_search_revealer.set_reveal_child(reveal);
 }
 
-fn visible_tags_for_row(tags: &[String]) -> Vec<&str> {
-    let mut visible = Vec::new();
-    let mut used_chars = 0usize;
-
-    for tag in tags {
-        let tag_chars = tag.chars().count();
-        let next_cost = if visible.is_empty() {
-            tag_chars
-        } else {
-            tag_chars + 1
-        };
-
-        if !visible.is_empty() && used_chars + next_cost > NOTE_ROW_TAGS_MAX_CHARS {
-            break;
+pub fn connect_tag_overflow(window: &PennaFrontendWindow) {
+    let flowbox: &gtk::FlowBox = &window.imp().notes_flowbox;
+    flowbox.connect_map(glib::clone!(
+        #[weak(rename_to = window)]
+        window,
+        move |_| {
+            glib::idle_add_local_once(glib::clone!(
+                #[weak(rename_to = window)]
+                window,
+                move || {
+                    update_tag_overflow(&window);
+                }
+            ));
         }
+    ));
 
-        visible.push(tag.as_str());
-        used_chars += next_cost;
-    }
-
-    if visible.is_empty() && !tags.is_empty() {
-        visible.push(tags[0].as_str());
-    }
-
-    visible
+    let weak = window.downgrade();
+    glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
+        let Some(window) = weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        let width = window.width();
+        let imp = window.imp();
+        if width != imp.tag_overflow_last_width.get() {
+            imp.tag_overflow_last_width.set(width);
+            if *imp.in_notes_grid_view.borrow() {
+                update_tag_overflow(&window);
+            }
+        }
+        glib::ControlFlow::Continue
+    });
 }
 
-fn hidden_tag_count_for_row(tags: &[String]) -> usize {
-    tags.len().saturating_sub(visible_tags_for_row(tags).len())
+fn update_tag_overflow(window: &PennaFrontendWindow) {
+    for button in note_buttons(window) {
+        update_row_tag_overflow(&button);
+    }
+}
+
+fn update_row_tag_overflow(button: &gtk::Button) {
+    let Some(count) = widget_data::<gtk::Button, usize>(button, "penna-note-tag-count") else {
+        return;
+    };
+    if count == 0 {
+        return;
+    }
+
+    let Some(row_box) = button
+        .child()
+        .and_then(|widget| widget.downcast::<gtk::CenterBox>().ok())
+    else {
+        return;
+    };
+    let Some(leading_box) = row_box
+        .start_widget()
+        .and_then(|widget| widget.downcast::<gtk::Box>().ok())
+    else {
+        return;
+    };
+    let Some(tags_box) = row_box
+        .end_widget()
+        .and_then(|widget| widget.downcast::<gtk::Box>().ok())
+    else {
+        return;
+    };
+    let Some(tags_inner) = tags_box
+        .first_child()
+        .and_then(|widget| widget.next_sibling())
+        .and_then(|widget| widget.downcast::<gtk::Box>().ok())
+    else {
+        return;
+    };
+
+    let row_width = row_box.width();
+    if row_width <= 0 {
+        return;
+    }
+
+    let tag_chips = row_children(&tags_inner);
+    let tag_chip_count = tag_chips.len().min(count);
+    if tag_chip_count == 0 {
+        return;
+    }
+
+    let mut widths = widget_data::<gtk::Button, Vec<i32>>(button, "penna-note-tag-widths")
+        .filter(|widths| widths.len() == count);
+    if widths.is_none() {
+        let measured: Vec<i32> = tag_chips
+            .iter()
+            .take(count)
+            .map(|chip| chip.measure(gtk::Orientation::Horizontal, -1).1.max(0))
+            .collect();
+        if measured.iter().all(|width| *width > 0) {
+            set_widget_data(button, "penna-note-tag-widths", measured.clone());
+            widths = Some(measured);
+        }
+    }
+    let Some(widths) = widths else {
+        return;
+    };
+
+    let leading_width = leading_box
+        .measure(gtk::Orientation::Horizontal, -1)
+        .1
+        .max(0);
+    let available = (row_width as i64 - leading_width as i64 - TAG_ROW_HORIZONTAL_SLACK as i64)
+        .max(0);
+
+    let all_width: i64 = widths
+        .iter()
+        .take(count)
+        .map(|width| *width as i64)
+        .sum::<i64>()
+        + TAG_ROW_SPACING as i64 * (count - 1) as i64;
+
+    let plus_chip = if count > 1 { tag_chips.last() } else { None };
+
+    let visible_count = if all_width <= available {
+        count
+    } else {
+        match plus_chip {
+            Some(plus_chip) => {
+                let plus_widths = plus_widths_for_count(button, plus_chip, count);
+                (1..count).rev().find(|&visible| {
+                    let hidden = count - visible;
+                    let plus_width =
+                        plus_widths.get(hidden - 1).copied().unwrap_or(0) as i64;
+                    let tags_width: i64 = widths
+                        .iter()
+                        .take(visible)
+                        .map(|width| *width as i64)
+                        .sum::<i64>()
+                        + if visible > 1 {
+                            TAG_ROW_SPACING as i64 * (visible - 1) as i64
+                        } else {
+                            0
+                        };
+                    tags_width + TAG_ROW_SPACING as i64 + plus_width <= available
+                })
+                .unwrap_or(0)
+            }
+            None => 1,
+        }
+    };
+
+    for (idx, chip) in tag_chips.iter().take(count).enumerate() {
+        let visible = idx < visible_count;
+        if chip.is_visible() != visible {
+            chip.set_visible(visible);
+        }
+    }
+
+    if let Some(plus_chip) = plus_chip {
+        let visible = visible_count < count;
+        if visible {
+            set_tag_chip_label(plus_chip, &format!("+{}", count - visible_count));
+        }
+        if plus_chip.is_visible() != visible {
+            plus_chip.set_visible(visible);
+        }
+    }
+}
+
+fn plus_widths_for_count(
+    button: &gtk::Button,
+    plus_chip: &gtk::Box,
+    count: usize,
+) -> Vec<i32> {
+    if let Some(widths) = widget_data::<gtk::Button, Vec<i32>>(button, "penna-note-plus-widths")
+        .filter(|widths| widths.len() == count - 1)
+    {
+        return widths;
+    }
+
+    let original_label = plus_chip
+        .first_child()
+        .and_then(|widget| widget.downcast::<gtk::Label>().ok())
+        .map(|label| label.text().to_string());
+    let was_visible = plus_chip.is_visible();
+    plus_chip.set_visible(true);
+
+    let mut widths = Vec::with_capacity(count.saturating_sub(1));
+    for hidden in 1..count {
+        set_tag_chip_label(plus_chip, &format!("+{hidden}"));
+        widths.push(
+            plus_chip
+                .measure(gtk::Orientation::Horizontal, -1)
+                .1
+                .max(0),
+        );
+    }
+
+    if let Some(label) = original_label {
+        set_tag_chip_label(plus_chip, &label);
+    }
+    plus_chip.set_visible(was_visible);
+
+    set_widget_data(button, "penna-note-plus-widths", widths.clone());
+    widths
+}
+
+fn row_children(widget: &gtk::Box) -> Vec<gtk::Box> {
+    let mut out = Vec::new();
+    let mut child = widget.first_child();
+
+    while let Some(current) = child {
+        if let Some(box_widget) = current.downcast_ref::<gtk::Box>() {
+            out.push(box_widget.clone());
+        }
+        child = current.next_sibling();
+    }
+
+    out
+}
+
+fn set_tag_chip_label(chip: &gtk::Box, label: &str) {
+    if let Some(text) = chip
+        .first_child()
+        .and_then(|widget| widget.downcast::<gtk::Label>().ok())
+    {
+        text.set_label(label);
+    }
+}
+
+fn set_widget_data<T: IsA<gtk::Widget> + 'static, V: 'static>(
+    object: &T,
+    key: &str,
+    value: V,
+) {
+    unsafe { object.set_data(key, value) };
+}
+
+fn widget_data<T: IsA<gtk::Widget> + 'static, V: Clone + 'static>(
+    object: &T,
+    key: &str,
+) -> Option<V> {
+    unsafe { object.data::<V>(key) }.map(|pointer| unsafe { pointer.as_ref().clone() })
 }
 
 pub(crate) fn build_tag_chip(tag: &str) -> gtk::Box {
