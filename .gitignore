@@ -33,3 +33,7 @@ progress.txt
 ralph.sh
 PROMPT.md
 PLAN.md
+
+# Local GNOME Builder flatpak manifest (Builder build config; deliberately
+# untracked from the repository since 46bab68)
+/io.github.enfff.Diary.json
