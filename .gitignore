@@ -37,3 +37,6 @@ PLAN.md
 # Local GNOME Builder flatpak manifest (Builder build config; deliberately
 # untracked from the repository since 46bab68)
 /io.github.enfff.Diary.json
+
+# Local Arch package build artifacts
+/utils/out/
