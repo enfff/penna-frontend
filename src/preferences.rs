@@ -304,26 +304,6 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         .title("Select a Font Family")
         .modal(true)
         .build();
-    let family_button = gtk::FontDialogButton::new(Some(family_dialog.clone()));
-    family_button.set_use_font(true);
-    family_button.set_use_size(false);
-    family_button.set_level(gtk::FontLevel::Family);
-    family_button.set_visible(false);
-
-    let initial_family = if custom_font.trim().is_empty() {
-        "Sans"
-    } else {
-        custom_font.trim()
-    };
-    let initial_desc = {
-        let mut desc = pango::FontDescription::new();
-        desc.set_family(initial_family);
-        desc
-    };
-    family_button.set_font_desc(&initial_desc);
-
-    custom_card.append(&family_button);
-
     let initial_font_size = app_window
         .as_ref()
         .map(|win| editor::editor_font_size_pt(win) as f64)
@@ -377,19 +357,48 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
 
     let open_custom_font_dialog: Rc<dyn Fn()> = {
         let family_dialog = family_dialog.clone();
-        let family_button = family_button.clone();
         let window_for_dialog = window.clone();
+        let app_for_choice = app.clone();
+        let custom_preview_for_choice = custom_preview.clone();
+        let custom_caption_for_choice = custom_caption.clone();
         Rc::new(move || {
-            let family_button_for_result = family_button.clone();
+            let app_for_result = app_for_choice.clone();
+            let custom_preview_for_result = custom_preview_for_choice.clone();
+            let custom_caption_for_result = custom_caption_for_choice.clone();
             family_dialog.choose_family(
                 Some(&window_for_dialog),
                 None::<&pango::FontFamily>,
                 None::<&gio::Cancellable>,
                 move |result| {
                     if let Ok(family) = result {
-                        let mut desc = pango::FontDescription::new();
-                        desc.set_family(&family.name());
-                        family_button_for_result.set_font_desc(&desc);
+                        let family = family.name().trim().to_string();
+                        let family = if family.is_empty() {
+                            "Sans".to_string()
+                        } else {
+                            family
+                        };
+
+                        let _ = settings::set_str(
+                            settings::SETTINGS_EDITOR_FONT_PRESET_KEY,
+                            "custom",
+                        );
+                        let _ = settings::set_str(
+                            settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY,
+                            &family,
+                        );
+                        custom_caption_for_result.set_label(&family);
+
+                        let family_markup = glib::markup_escape_text(&family);
+                        custom_preview_for_result.set_markup(&format!(
+                            "<span font_desc=\"{} Bold 42\">Ab</span>",
+                            family_markup
+                        ));
+
+                        if let Some(window) = app_for_result.active_window() {
+                            if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                                editor::apply_editor_css(&window);
+                            }
+                        }
                     }
                 },
             );
@@ -422,42 +431,6 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         }
     });
     custom_radio.add_controller(custom_click);
-
-    let app_for_custom = app.clone();
-    let custom_preview_for_family = custom_preview.clone();
-    let custom_caption_for_family = custom_caption.clone();
-    family_button.connect_font_desc_notify(move |button| {
-        let Some(desc) = button.font_desc() else {
-            return;
-        };
-
-        let family = desc
-            .family()
-            .map(|name| name.to_string())
-            .unwrap_or_else(|| "Sans".to_string());
-        let family = family.trim().to_string();
-        let family = if family.is_empty() {
-            "Sans".to_string()
-        } else {
-            family
-        };
-
-        let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_PRESET_KEY, "custom");
-        let _ = settings::set_str(settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY, &family);
-        custom_caption_for_family.set_label(&family);
-
-        let family_markup = glib::markup_escape_text(&family);
-        custom_preview_for_family.set_markup(&format!(
-            "<span font_desc=\"{} Bold 42\">Ab</span>",
-            family_markup
-        ));
-
-        if let Some(window) = app_for_custom.active_window() {
-            if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                editor::apply_editor_css(&window);
-            }
-        }
-    });
 
     let app_for_font_size = app.clone();
     font_size_row.connect_value_notify(move |row| {
