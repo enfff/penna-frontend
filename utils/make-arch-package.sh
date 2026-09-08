@@ -7,8 +7,7 @@
 #
 # Usage: utils/make-arch-package.sh [makepkg args...]
 #        default args: -f
-#        e.g. utils/make-arch-package.sh -f -C   # also clean the src dir
-#             utils/make-arch-package.sh -f -e   # skip meson test (check())
+#        e.g. utils/make-arch-package.sh -f --nocheck  # skip the test suite
 # Output: utils/out/<pkgname>-<pkgver>-<arch>.pkg.tar.zst
 
 set -euo pipefail
