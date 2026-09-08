@@ -4,10 +4,11 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use chrono::Local;
-use gtk::{gio, glib, pango};
+use gtk::{gio, glib};
 
 use crate::application::PennaFrontendApplication;
 use crate::editor;
+use crate::font_picker;
 use crate::format::ENTRY_DATETIME_FORMAT_DEFAULT;
 use crate::i18n;
 use crate::settings;
@@ -300,10 +301,6 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         }
     }
 
-    let family_dialog = gtk::FontDialog::builder()
-        .title("Select a Font Family")
-        .modal(true)
-        .build();
     let initial_font_size = app_window
         .as_ref()
         .map(|win| editor::editor_font_size_pt(win) as f64)
@@ -356,7 +353,6 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     });
 
     let open_custom_font_dialog: Rc<dyn Fn()> = {
-        let family_dialog = family_dialog.clone();
         let window_for_dialog = window.clone();
         let app_for_choice = app.clone();
         let custom_preview_for_choice = custom_preview.clone();
@@ -365,43 +361,36 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
             let app_for_result = app_for_choice.clone();
             let custom_preview_for_result = custom_preview_for_choice.clone();
             let custom_caption_for_result = custom_caption_for_choice.clone();
-            family_dialog.choose_family(
-                Some(&window_for_dialog),
-                None::<&pango::FontFamily>,
-                None::<&gio::Cancellable>,
-                move |result| {
-                    if let Ok(family) = result {
-                        let family = family.name().trim().to_string();
-                        let family = if family.is_empty() {
-                            "Sans".to_string()
-                        } else {
-                            family
-                        };
+            font_picker::show_family_picker(&window_for_dialog, move |family_name| {
+                let family = family_name.trim().to_string();
+                let family = if family.is_empty() {
+                    "Sans".to_string()
+                } else {
+                    family
+                };
 
-                        let _ = settings::set_str(
-                            settings::SETTINGS_EDITOR_FONT_PRESET_KEY,
-                            "custom",
-                        );
-                        let _ = settings::set_str(
-                            settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY,
-                            &family,
-                        );
-                        custom_caption_for_result.set_label(&family);
+                let _ = settings::set_str(
+                    settings::SETTINGS_EDITOR_FONT_PRESET_KEY,
+                    "custom",
+                );
+                let _ = settings::set_str(
+                    settings::SETTINGS_EDITOR_FONT_CUSTOM_KEY,
+                    &family,
+                );
+                custom_caption_for_result.set_label(&family);
 
-                        let family_markup = glib::markup_escape_text(&family);
-                        custom_preview_for_result.set_markup(&format!(
-                            "<span font_desc=\"{} Bold 42\">Ab</span>",
-                            family_markup
-                        ));
+                let family_markup = glib::markup_escape_text(&family);
+                custom_preview_for_result.set_markup(&format!(
+                    "<span font_desc=\"{} Bold 42\">Ab</span>",
+                    family_markup
+                ));
 
-                        if let Some(window) = app_for_result.active_window() {
-                            if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
-                                editor::apply_editor_css(&window);
-                            }
-                        }
+                if let Some(window) = app_for_result.active_window() {
+                    if let Ok(window) = window.downcast::<PennaFrontendWindow>() {
+                        editor::apply_editor_css(&window);
                     }
-                },
-            );
+                }
+            });
         })
     };
 

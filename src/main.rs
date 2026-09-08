@@ -25,6 +25,7 @@ mod config;
 mod editor;
 mod engine;
 mod format;
+mod font_picker;
 mod gestures;
 mod grid;
 mod i18n;
