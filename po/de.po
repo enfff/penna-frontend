@@ -4,6 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend 0.1.3\n"
 "Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-14 16:40+0200\n"
 "PO-Revision-Date: 2026-08-26 00:40+0200\n"
 "Last-Translator: Francesco P. Carmone\n"
 "Language-Team: German\n"
@@ -14,6 +15,8 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: data/io.github.enfff.Diary.desktop.in:2
+#: data/io.github.enfff.Diary.metainfo.xml.in:7 src/i18n.rs:11
+#: src/window.ui:252
 msgid "Diary"
 msgstr "Tagebuch"
 
@@ -29,9 +32,69 @@ msgstr "Führe ein Tagebuch für deine Gedanken und Erinnerungen"
 msgid "GTK;Diary;Journal;Notes;"
 msgstr "GTK;Tagebuch;Journal;Notizen;"
 
+#: data/io.github.enfff.Diary.gschema.xml:6
+msgid "Selected repository path"
+msgstr "Ausgewählter Repository-Pfad"
+
+#: data/io.github.enfff.Diary.gschema.xml:7
+msgid "Journal repository path selected during setup."
+msgstr "Während der Einrichtung gewählter Journal-Repository-Pfad."
+
+#: data/io.github.enfff.Diary.gschema.xml:11
+msgid "Enable auto-save"
+msgstr "Automatisches Speichern aktivieren"
+
+#: data/io.github.enfff.Diary.gschema.xml:12
+msgid "Save the current note automatically when you leave it."
+msgstr "Speichert die aktuelle Notiz automatisch, wenn Sie sie verlassen."
+
+#: data/io.github.enfff.Diary.gschema.xml:16
+msgid "Open editor in viewer mode"
+msgstr "Editor im Ansichtsmodus öffnen"
+
+#: data/io.github.enfff.Diary.gschema.xml:17
+msgid "Whether notes should be shown read-only instead of editable."
+msgstr ""
+"Legt fest, ob Notizen schreibgeschützt statt bearbeitbar angezeigt werden."
+
+#: data/io.github.enfff.Diary.gschema.xml:21
+msgid "Editor font preset"
+msgstr "Editor-Schriftvoreinstellung"
+
+#: data/io.github.enfff.Diary.gschema.xml:22
+msgid "Editor font option: sans, serif, or custom."
+msgstr "Editor-Schriftoption: serifenlos, mit Serifen oder benutzerdefiniert."
+
+#: data/io.github.enfff.Diary.gschema.xml:26
+msgid "Custom editor font family"
+msgstr "Eigene Editor-Schriftfamilie"
+
+#: data/io.github.enfff.Diary.gschema.xml:27
+msgid "Custom font family used when editor font preset is custom."
+msgstr ""
+"Eigene Schriftfamilie, wenn als Editor-Voreinstellung „Benutzerdefiniert“ "
+"gewählt ist."
+
+#: data/io.github.enfff.Diary.gschema.xml:31
+msgid "Entry date/time display format"
+msgstr "Anzeigeformat für Datum/Uhrzeit des Eintrags"
+
+#: data/io.github.enfff.Diary.gschema.xml:32
+msgid ""
+"Chrono strftime format used to render entry IDs, e.g. %Y-%m-%d or %Y-%m-%d "
+"%H:%M."
+msgstr ""
+
 #: data/io.github.enfff.Diary.metainfo.xml.in:8
 msgid "A calm place for daily notes"
 msgstr "Ein ruhiger Ort für tägliche Notizen"
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:10
+msgid ""
+"Diary is a local-first journaling app. Every entry is a plain Markdown file "
+"stored in a git repository you own — no accounts, no cloud service, no lock-"
+"in."
+msgstr ""
 
 #: data/io.github.enfff.Diary.metainfo.xml.in:15
 msgid "Highlights:"
@@ -62,140 +125,47 @@ msgid "Francesco P. Carmone"
 msgstr "Francesco P. Carmone"
 
 #: data/io.github.enfff.Diary.metainfo.xml.in:55
+msgid "A sync and performance pass:"
+msgstr ""
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:57
+msgid "Clone a diary repository, with keychain auth for hosted repos"
+msgstr ""
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:58
+msgid "Conflict resolver gains a \"keep both\" resolution"
+msgstr ""
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:59
+msgid "Live finger-tracked forward swipe to the next note"
+msgstr ""
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:60
+msgid "Save, grid refresh, and watcher reload now run off the main thread"
+msgstr ""
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:66
 msgid "This release focuses on navigation and reach:"
 msgstr "Diese Version verbessert Navigation und Bedienbarkeit:"
 
-#: data/io.github.enfff.Diary.metainfo.xml.in:57
+#: data/io.github.enfff.Diary.metainfo.xml.in:68
 msgid "Back-swipe to the notes grid also works over scrollable notes"
-msgstr "Zurückwischen zum Notizenraster funktioniert jetzt auch bei scrollbaren Notizen"
+msgstr ""
+"Zurückwischen zum Notizenraster funktioniert jetzt auch bei scrollbaren "
+"Notizen"
 
-#: data/io.github.enfff.Diary.metainfo.xml.in:59
+#: data/io.github.enfff.Diary.metainfo.xml.in:69
+msgid ""
+"Sync moved to a header bar button; repository switching lives in Preferences"
+msgstr ""
+
+#: data/io.github.enfff.Diary.metainfo.xml.in:70
 msgid "Initial translations: German, French, Italian"
 msgstr "Erste Übersetzungen: Deutsch, Französisch, Italienisch"
 
-#: data/io.github.enfff.Diary.metainfo.xml.in:60
+#: data/io.github.enfff.Diary.metainfo.xml.in:71
 msgid "GNOME 50 runtime; refreshed visuals and gesture handling"
 msgstr "GNOME-50-Laufzeit; überarbeitete Optik und Gestensteuerung"
-
-#: data/io.github.enfff.Diary.gschema.xml:6
-msgid "Selected repository path"
-msgstr "Ausgewählter Repository-Pfad"
-
-#: data/io.github.enfff.Diary.gschema.xml:7
-msgid "Journal repository path selected during setup."
-msgstr "Während der Einrichtung gewählter Journal-Repository-Pfad."
-
-#: data/io.github.enfff.Diary.gschema.xml:11
-msgid "Enable auto-save"
-msgstr "Automatisches Speichern aktivieren"
-
-#: data/io.github.enfff.Diary.gschema.xml:12
-msgid "Save the current note automatically when you leave it."
-msgstr "Speichert die aktuelle Notiz automatisch, wenn Sie sie verlassen."
-
-#: data/io.github.enfff.Diary.gschema.xml:16
-msgid "Open editor in viewer mode"
-msgstr "Editor im Ansichtsmodus öffnen"
-
-#: data/io.github.enfff.Diary.gschema.xml:17
-msgid "Whether notes should be shown read-only instead of editable."
-msgstr "Legt fest, ob Notizen schreibgeschützt statt bearbeitbar angezeigt werden."
-
-#: data/io.github.enfff.Diary.gschema.xml:21
-msgid "Editor font preset"
-msgstr "Editor-Schriftvoreinstellung"
-
-#: data/io.github.enfff.Diary.gschema.xml:22
-msgid "Editor font option: sans, serif, or custom."
-msgstr "Editor-Schriftoption: serifenlos, mit Serifen oder benutzerdefiniert."
-
-#: data/io.github.enfff.Diary.gschema.xml:26
-msgid "Custom editor font family"
-msgstr "Eigene Editor-Schriftfamilie"
-
-#: data/io.github.enfff.Diary.gschema.xml:27
-msgid "Custom font family used when editor font preset is custom."
-msgstr "Eigene Schriftfamilie, wenn als Editor-Voreinstellung „Benutzerdefiniert“ gewählt ist."
-
-#: data/io.github.enfff.Diary.gschema.xml:31
-msgid "Entry date/time display format"
-msgstr "Anzeigeformat für Datum/Uhrzeit des Eintrags"
-
-#: src/window.ui:6
-msgid "Penna-frontend"
-msgstr "Penna-frontend"
-
-#: src/window.ui:29
-msgid "Sync now"
-msgstr "Jetzt synchronisieren"
-
-#: src/window.ui:37
-msgid "Back to notes grid"
-msgstr "Zurück zur Notizenübersicht"
-
-#: src/window.ui:44
-msgid "Main Menu"
-msgstr "Hauptmenü"
-
-#: src/window.ui:51
-msgid "Turn on viewer mode"
-msgstr "Ansichtsmodus einschalten"
-
-#: src/window.ui:75
-msgid "Welcome to Diary"
-msgstr "Willkommen bei Diary"
-
-#: src/window.ui:94
-msgid "Create or load a repository"
-msgstr "Repository erstellen oder öffnen"
-
-#: src/window.ui:130
-msgid "Ready"
-msgstr "Bereit"
-
-#: src/window.ui:147
-msgid "Search title and content"
-msgstr "Titel und Inhalt durchsuchen"
-
-#: src/window.ui:182
-msgid "No notes yet"
-msgstr "Noch keine Notizen"
-
-#: src/window.ui:190
-msgid "Create your first note to start your journal."
-msgstr "Erstelle deine erste Notiz, um dein Journal zu starten."
-
-#: src/window.ui:204
-msgid "New Note"
-msgstr "Neue Notiz"
-
-#: src/window.ui:248
-msgid "Editor"
-msgstr "Editor"
-
-#: src/window.ui:304
-msgid "_New Note"
-msgstr "_Neue Notiz"
-
-#: src/window.ui:308
-msgid "_Delete Note"
-msgstr "Notiz _löschen"
-
-#: src/window.ui:314
-msgid "_Preferences"
-msgstr "_Einstellungen"
-
-#: src/window.ui:318
-msgid "_Keyboard Shortcuts"
-msgstr "_Tastenkombinationen"
-
-#: src/window.ui:322
-msgid "_About Penna-frontend"
-msgstr "_Über Penna-frontend"
-
-#: src/window.ui:326
-msgid "_Quit"
-msgstr "_Beenden"
 
 #: src/i18n.rs:15
 msgid "Repository path required"
@@ -222,84 +192,95 @@ msgid "Saved"
 msgstr "Gespeichert"
 
 #: src/i18n.rs:41
+msgid "Saving…"
+msgstr ""
+
+#: src/i18n.rs:45
 msgid "Opened today's note"
 msgstr "Heutige Notiz geöffnet"
 
-#: src/i18n.rs:45
+#: src/i18n.rs:49
 msgid "Note deleted"
 msgstr "Notiz gelöscht"
 
-#: src/i18n.rs:49
+#: src/i18n.rs:53
 msgid "Undo"
 msgstr "Rückgängig"
 
-#: src/i18n.rs:53
+#: src/i18n.rs:57
 msgid "Note restored"
 msgstr "Notiz wiederhergestellt"
 
-#: src/i18n.rs:57
+#: src/i18n.rs:61
 msgid "All conflicts resolved — sync complete"
 msgstr "Alle Konflikte gelöst – Synchronisierung abgeschlossen"
 
-#: src/i18n.rs:61
+#: src/i18n.rs:65
+#, rust-format
 msgid "Sync failed: {}"
 msgstr "Synchronisierung fehlgeschlagen: {}"
 
-#: src/i18n.rs:66
+#: src/i18n.rs:70
+#, rust-format
 msgid "{} unresolved conflict"
 msgid_plural "{} unresolved conflicts"
 msgstr[0] "{} ungelöster Konflikt"
 msgstr[1] "{} ungelöste Konflikte"
 
-#: src/i18n.rs:75
+#: src/i18n.rs:79
+#, rust-format
 msgid "{} note needs conflict resolution"
 msgid_plural "{} notes need conflict resolution"
 msgstr[0] "{} Notiz benötigt eine Konfliktlösung"
 msgstr[1] "{} Notizen benötigen eine Konfliktlösung"
 
-#: src/i18n.rs:83
+#: src/i18n.rs:87
+msgid "Review"
+msgstr ""
+
+#: src/i18n.rs:91
 msgid "Accept Current"
 msgstr "Aktuelle übernehmen"
 
-#: src/i18n.rs:87
+#: src/i18n.rs:95
 msgid "Accept Incoming"
 msgstr "Inkommende übernehmen"
 
-#: src/i18n.rs:91
+#: src/i18n.rs:99
+msgid "Keep Both"
+msgstr ""
+
+#: src/i18n.rs:103
+msgid "This device"
+msgstr ""
+
+#: src/i18n.rs:107
+msgid "Other device"
+msgstr ""
+
+#: src/i18n.rs:111
+msgid "Keep both"
+msgstr ""
+
+#: src/i18n.rs:115
 msgid "Accepted current changes"
 msgstr "Aktuelle Änderungen übernommen"
 
-#: src/i18n.rs:95
+#: src/i18n.rs:119
 msgid "Accepted incoming changes"
 msgstr "Inkommende Änderungen übernommen"
 
-#: src/i18n.rs:102
-msgid "Repository"
-msgstr "Repository"
-
-#: src/i18n.rs:106
-msgid "Change…"
-msgstr "Ändern…"
-
-#: src/i18n.rs:110
-msgid "Repository path"
-msgstr "Repository-Pfad"
-
-#: src/i18n.rs:114
-msgid "No repository connected yet"
-msgstr "Noch kein Repository verbunden"
-
-#: src/i18n.rs:118
-msgid "Choose repository folder"
-msgstr "Repository-Ordner auswählen"
-
-#: src/i18n.rs:122
-msgid "Unresolved sync conflict"
-msgstr "Ungelöster Sync-Konflikt"
+#: src/i18n.rs:123
+msgid "Kept both versions"
+msgstr ""
 
 #: src/i18n.rs:127
 msgid "General"
 msgstr "Allgemein"
+
+#: src/i18n.rs:131 src/shortcuts-dialog.ui:49 src/window.ui:339
+msgid "Editor"
+msgstr "Editor"
 
 #: src/i18n.rs:135
 msgid "Auto-save"
@@ -321,10 +302,264 @@ msgstr "Änderungen an dieser Notiz speichern, bevor Sie sie verlassen?"
 msgid "Discard"
 msgstr "Verwerfen"
 
-#: src/i18n.rs:155
+#: src/i18n.rs:155 src/i18n.rs:213
 msgid "Save"
 msgstr "Speichern"
 
-#: src/i18n.rs:216
+#: src/i18n.rs:159
+msgid "Repository"
+msgstr "Repository"
+
+#: src/i18n.rs:163
+msgid ""
+"Choose where your diary lives, or clone one from a server. Switching "
+"reconnects the app to that diary."
+msgstr ""
+
+#: src/i18n.rs:167
+msgid "Change…"
+msgstr "Ändern…"
+
+#: src/i18n.rs:173
+msgid "Repository path"
+msgstr "Repository-Pfad"
+
+#: src/i18n.rs:177 src/window.ui:115
+msgid "This computer"
+msgstr ""
+
+#: src/i18n.rs:181 src/window.ui:160
+msgid "From a server"
+msgstr ""
+
+#: src/i18n.rs:185 src/window.ui:169
+#, fuzzy
+msgid "Clone an existing diary from a repository."
+msgstr "Repository erstellen oder öffnen"
+
+#: src/i18n.rs:189
+msgid "No repository connected yet"
+msgstr "Noch kein Repository verbunden"
+
+#: src/i18n.rs:193
+msgid "Choose repository folder"
+msgstr "Repository-Ordner auswählen"
+
+#: src/i18n.rs:197
+msgid "Unresolved sync conflict"
+msgstr "Ungelöster Sync-Konflikt"
+
+#: src/i18n.rs:201
+msgid "Authentication required"
+msgstr ""
+
+#: src/i18n.rs:205
+msgid ""
+"Enter a personal access token for this remote. It is stored in your system "
+"keychain and reused for future syncs."
+msgstr ""
+
+#: src/i18n.rs:209
+msgid "Personal access token"
+msgstr ""
+
+#: src/i18n.rs:217
 msgid "Cancel"
 msgstr "Abbrechen"
+
+#: src/i18n.rs:221
+#, fuzzy
+msgid "Clone a diary"
+msgstr "Willkommen bei Diary"
+
+#: src/i18n.rs:225
+#, fuzzy
+msgid "Repository URL"
+msgstr "Repository"
+
+#: src/i18n.rs:229
+msgid "https://"
+msgstr ""
+
+#: src/i18n.rs:233
+#, fuzzy
+msgid "Save to"
+msgstr "Speichern"
+
+#: src/i18n.rs:237 src/window.ui:135
+msgid "Browse…"
+msgstr ""
+
+#: src/i18n.rs:241
+msgid "Clone"
+msgstr ""
+
+#: src/i18n.rs:245
+msgid "Clone a diary from a server"
+msgstr ""
+
+#: src/i18n.rs:249
+#, fuzzy
+msgid "Choose a folder"
+msgstr "Repository-Ordner auswählen"
+
+#: src/i18n.rs:253
+#, fuzzy
+msgid "Enter a repository URL."
+msgstr "Repository erstellen oder öffnen"
+
+#: src/i18n.rs:257
+#, rust-format
+msgid "Cloned and connected: {}"
+msgstr ""
+
+#: src/i18n.rs:261
+#, fuzzy, rust-format
+msgid "Clone failed: {}"
+msgstr "Synchronisierung fehlgeschlagen: {}"
+
+#: src/shortcuts-dialog.ui:8
+msgid "Application"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:12
+msgid "Save entry"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:18
+#, fuzzy
+msgid "Sync journal"
+msgstr "Tagebuch"
+
+#: src/shortcuts-dialog.ui:24
+#, fuzzy
+msgid "New note"
+msgstr "Neue Notiz"
+
+#: src/shortcuts-dialog.ui:30
+#, fuzzy
+msgid "Back to grid"
+msgstr "Zurück zur Notizenübersicht"
+
+#: src/shortcuts-dialog.ui:36
+#, fuzzy
+msgid "Toggle viewer mode"
+msgstr "Ansichtsmodus einschalten"
+
+#: src/shortcuts-dialog.ui:42
+#, fuzzy
+msgid "Quit"
+msgstr "_Beenden"
+
+#: src/shortcuts-dialog.ui:53
+msgid "Zoom in"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:59
+msgid "Zoom out"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:65
+msgid "Bold"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:71
+msgid "Italic"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:77
+msgid "Link"
+msgstr ""
+
+#: src/shortcuts-dialog.ui:83
+#, fuzzy
+msgid "Accept current conflict side"
+msgstr "Aktuelle Änderungen übernommen"
+
+#: src/shortcuts-dialog.ui:89
+#, fuzzy
+msgid "Accept incoming conflict side"
+msgstr "Inkommende Änderungen übernommen"
+
+#: src/window.ui:6
+msgid "Penna-frontend"
+msgstr "Penna-frontend"
+
+#: src/window.ui:30
+msgid "Back to notes grid"
+msgstr "Zurück zur Notizenübersicht"
+
+#: src/window.ui:36
+msgid "Sync now"
+msgstr "Jetzt synchronisieren"
+
+#: src/window.ui:44
+msgid "Main Menu"
+msgstr "Hauptmenü"
+
+#: src/window.ui:51
+msgid "Turn on viewer mode"
+msgstr "Ansichtsmodus einschalten"
+
+#: src/window.ui:80
+msgid "Welcome to Diary"
+msgstr "Willkommen bei Diary"
+
+#: src/window.ui:88
+msgid ""
+"A diary is a folder of plain Markdown notes that you control. Keep it on "
+"this computer, or clone one from a server."
+msgstr ""
+
+#: src/window.ui:124
+msgid ""
+"Start a new diary in a folder, or open one that is already on this machine."
+msgstr ""
+
+#: src/window.ui:180
+msgid "Clone…"
+msgstr ""
+
+#: src/window.ui:221
+msgid "Ready"
+msgstr "Bereit"
+
+#: src/window.ui:238
+msgid "Search title and content"
+msgstr "Titel und Inhalt durchsuchen"
+
+#: src/window.ui:273
+msgid "No notes yet"
+msgstr "Noch keine Notizen"
+
+#: src/window.ui:281
+msgid "Create your first note to start your journal."
+msgstr "Erstelle deine erste Notiz, um dein Journal zu starten."
+
+#: src/window.ui:295
+msgid "New Note"
+msgstr "Neue Notiz"
+
+#: src/window.ui:395
+msgid "_New Note"
+msgstr "_Neue Notiz"
+
+#: src/window.ui:399
+msgid "_Delete Note"
+msgstr "Notiz _löschen"
+
+#: src/window.ui:405
+msgid "_Preferences"
+msgstr "_Einstellungen"
+
+#: src/window.ui:409
+msgid "_Keyboard Shortcuts"
+msgstr "_Tastenkombinationen"
+
+#: src/window.ui:413
+msgid "_About Penna-frontend"
+msgstr "_Über Penna-frontend"
+
+#: src/window.ui:417
+msgid "_Quit"
+msgstr "_Beenden"
