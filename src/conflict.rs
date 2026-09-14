@@ -181,41 +181,47 @@ pub(crate) struct ConflictSpan {
 /// `>>>>>>>` marker lines; blocks the parser demoted to prose yield nothing,
 /// so hand-written marker lookalikes are never styled.
 pub(crate) fn conflict_style_spans(content: &str) -> Vec<ConflictSpan> {
+    conflict_spans_from_blocks(&conflict_blocks(content))
+}
+
+/// Derives styleable line ranges from blocks already parsed out of the
+/// content.
+///
+/// Companion to [`conflict_blocks`]: a caller that parsed the content once
+/// derives both the styling spans and per-line block lookups from that single
+/// result instead of re-scanning the text. Yields exactly the spans
+/// [`conflict_style_spans`] produces for the same content, so styling output
+/// is unchanged.
+pub(crate) fn conflict_spans_from_blocks(blocks: &[ConflictBlock]) -> Vec<ConflictSpan> {
     let mut spans = Vec::new();
 
-    for segment in split_conflict_segments(content) {
-        let start = segment.start_line();
-        let end = start + segment.line_count();
-        match segment {
-            ConflictSegment::Normal { .. } => {}
-            ConflictSegment::Current { .. } => {
-                // The `<<<<<<<` header opens the current side, so it carries the
-                // current tint in addition to the dimmed marker style.
-                spans.push(single_line_span(ConflictSpanKind::CurrentLines, start - 1));
-                spans.push(marker_span(start - 1));
-                if end > start {
-                    spans.push(ConflictSpan {
-                        kind: ConflictSpanKind::CurrentLines,
-                        start_line: start,
-                        end_line: end,
-                    });
-                }
-                spans.push(marker_span(end));
-            }
-            ConflictSegment::Incoming { .. } => {
-                if end > start {
-                    spans.push(ConflictSpan {
-                        kind: ConflictSpanKind::IncomingLines,
-                        start_line: start,
-                        end_line: end,
-                    });
-                }
-                // The `>>>>>>>` marker closes the incoming side, so it carries the
-                // incoming tint in addition to the dimmed marker style.
-                spans.push(single_line_span(ConflictSpanKind::IncomingLines, end));
-                spans.push(marker_span(end));
-            }
+    for block in blocks {
+        // The `<<<<<<<` header opens the current side, so it carries the
+        // current tint in addition to the dimmed marker style.
+        spans.push(single_line_span(ConflictSpanKind::CurrentLines, block.start_line));
+        spans.push(marker_span(block.start_line));
+        if block.separator_anchor_line > block.start_line + 1 {
+            spans.push(ConflictSpan {
+                kind: ConflictSpanKind::CurrentLines,
+                start_line: block.start_line + 1,
+                end_line: block.separator_anchor_line,
+            });
         }
+        spans.push(marker_span(block.separator_anchor_line));
+        if block.incoming_anchor_line > block.separator_anchor_line + 1 {
+            spans.push(ConflictSpan {
+                kind: ConflictSpanKind::IncomingLines,
+                start_line: block.separator_anchor_line + 1,
+                end_line: block.incoming_anchor_line,
+            });
+        }
+        // The `>>>>>>>` marker closes the incoming side, so it carries the
+        // incoming tint in addition to the dimmed marker style.
+        spans.push(single_line_span(
+            ConflictSpanKind::IncomingLines,
+            block.incoming_anchor_line,
+        ));
+        spans.push(marker_span(block.incoming_anchor_line));
     }
 
     spans
@@ -858,6 +864,48 @@ e
                 assert!(span.end_line <= line_count, "content {content:?}");
             }
         }
+    }
+
+    // The editor derives styling spans and caret-block lookups from one
+    // shared `conflict_blocks` parse; these pin that the block-derived spans
+    // are byte-identical to the segment-derived ones.
+    #[test]
+    fn block_derived_spans_match_segment_derived_spans() {
+        for content in [
+            "".to_string(),
+            "just prose\n".to_string(),
+            BLOCK.to_string(),
+            format!("pre\n{BLOCK}post\n"),
+            format!("{BLOCK}{BLOCK}tail\n"),
+            "<<<<<<< HEAD\n=======\n>>>>>>> topic\n".to_string(),
+            "<<<<<<< HEAD\nalpha\n>>>>>>> feature\n".to_string(),
+        ] {
+            assert_eq!(
+                conflict_spans_from_blocks(&conflict_blocks(&content)),
+                conflict_style_spans(&content),
+                "content {content:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn block_derived_spans_cover_each_block_once() {
+        let content = format!("{BLOCK}{BLOCK}tail\n");
+        let spans = conflict_spans_from_blocks(&conflict_blocks(&content));
+
+        // Seven spans per well-formed block, document order preserved.
+        assert_eq!(spans.len(), 14);
+        assert_side(&spans[0], ConflictSpanKind::CurrentLines, 0, 1);
+        assert_marker(&spans[1], 0);
+        assert_side(&spans[2], ConflictSpanKind::CurrentLines, 1, 2);
+        assert_marker(&spans[3], 2);
+        assert_side(&spans[4], ConflictSpanKind::IncomingLines, 3, 4);
+        assert_side(&spans[5], ConflictSpanKind::IncomingLines, 4, 5);
+        assert_marker(&spans[6], 4);
+        assert_side(&spans[7], ConflictSpanKind::CurrentLines, 5, 6);
+        assert_marker(&spans[10], 7);
+        assert_side(&spans[12], ConflictSpanKind::IncomingLines, 9, 10);
+        assert_marker(&spans[13], 9);
     }
 }
 

@@ -32,8 +32,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::conflict::{
-    conflict_block_at_line, conflict_blocks, conflict_style_spans,
-    unresolved_conflict_count, ConflictBlock, ConflictSide, ConflictSpanKind,
+    conflict_block_at_line, conflict_blocks, conflict_spans_from_blocks,
+    unresolved_conflict_count, ConflictBlock, ConflictSide, ConflictSpan, ConflictSpanKind,
 };
 use crate::editor;
 use crate::editor::{
@@ -170,6 +170,7 @@ mod imp {
         pub(super) pending_leave: PendingLeave,
         pub conflict_widgets: RefCell<Vec<gtk::Box>>,
         pub conflicted_entry_ids: RefCell<Vec<String>>,
+        pub(crate) conflict_blocks_cache: RefCell<Option<Vec<ConflictBlock>>>,
     }
 
     impl Default for PennaFrontendWindow {
@@ -221,6 +222,7 @@ mod imp {
                 pending_leave: NoDebug::default(),
                 conflict_widgets: RefCell::default(),
                 conflicted_entry_ids: RefCell::default(),
+                conflict_blocks_cache: RefCell::default(),
             }
         }
     }
@@ -3125,15 +3127,21 @@ impl PennaFrontendWindow {
         }
 
         imp.editor_view.set_rule_lines(rule_lines);
-        Self::apply_conflict_styling(&buffer, &text);
+        // One conflict parse per styling pass: the tags below and the block
+        // cache behind `update_conflict_actions` both derive from it, so no
+        // later step rescans the buffer text.
+        let blocks = conflict_blocks(&text);
+        let spans = conflict_spans_from_blocks(&blocks);
+        imp.conflict_blocks_cache.replace(Some(blocks));
+        Self::apply_conflict_styling(&buffer, &spans);
     }
 
-    fn apply_conflict_styling(buffer: &gtk::TextBuffer, text: &str) {
+    fn apply_conflict_styling(buffer: &gtk::TextBuffer, spans: &[ConflictSpan]) {
         // Apply per line through iterators, not absolute char offsets: the
         // inline resolution buttons are child anchors occupying buffer
         // positions, which shifts every character after them relative to the
         // plain `text` we parsed from.
-        for span in conflict_style_spans(text) {
+        for span in spans {
             let tag_name = match span.kind {
                 ConflictSpanKind::CurrentLines => TAG_CONFLICT_CURRENT,
                 ConflictSpanKind::IncomingLines => TAG_CONFLICT_INCOMING,
@@ -3186,9 +3194,20 @@ impl PennaFrontendWindow {
     fn cursor_conflict_block(&self) -> Option<ConflictBlock> {
         let imp = self.imp();
         let buffer = imp.editor_view.buffer();
+        let line = usize::try_from(buffer.iter_at_mark(&buffer.get_insert()).line()).ok()?;
+
+        // Every buffer change re-runs the styling pass, which reparses the
+        // blocks and caches them; caret moves and post-change action updates
+        // reuse that result instead of rescanning the buffer text.
+        if let Some(blocks) = imp.conflict_blocks_cache.borrow().as_ref() {
+            return blocks
+                .iter()
+                .find(|block| line >= block.start_line && line < block.end_line)
+                .cloned();
+        }
+
         let (start, end) = buffer.bounds();
         let text = buffer.text(&start, &end, true).to_string();
-        let line = usize::try_from(buffer.iter_at_mark(&buffer.get_insert()).line()).ok()?;
         conflict_block_at_line(&text, line)
     }
 
