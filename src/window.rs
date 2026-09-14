@@ -291,6 +291,18 @@ glib::wrapper! {
                     gio::ActionGroup, gio::ActionMap;
 }
 
+/// Take the pending-leave closure out of `pending_leave` and invoke it with
+/// the borrow already dropped. The closure re-enters `close_request` (via
+/// `window.close()`), which borrows `pending_leave` again, so invoking it
+/// while the `borrow_mut()` guard is still alive would panic with "RefCell
+/// already mutably borrowed" inside the GTK signal callback (app abort).
+fn run_pending_leave(pending_leave: &RefCell<Option<Box<dyn FnOnce()>>>) {
+    let on_leave = pending_leave.borrow_mut().take();
+    if let Some(on_leave) = on_leave {
+        on_leave();
+    }
+}
+
 impl PennaFrontendWindow {
     pub fn new<P: IsA<gtk::Application>>(application: &P) -> Self {
         glib::Object::builder()
@@ -1745,14 +1757,7 @@ impl PennaFrontendWindow {
     }
 
     fn finish_pending_leave(&self) {
-        // Take the closure out before invoking it: an `if let` scrutinee
-        // keeps the `borrow_mut()` temporary alive across the block, so
-        // calling the closure in place would re-enter `close_request`
-        // while `pending_leave` is still mutably borrowed and panic.
-        let Some(on_leave) = self.imp().pending_leave.0.borrow_mut().take() else {
-            return;
-        };
-        on_leave();
+        run_pending_leave(&self.imp().pending_leave.0);
     }
 
     fn guard_leave_current_entry(&self, on_leave: Box<dyn FnOnce()>) {
@@ -3893,5 +3898,37 @@ mod entry_id_for_day_tests {
     #[test]
     fn empty_list() {
         assert_eq!(PennaFrontendWindow::entry_id_for_day(&[], "20260825"), None);
+    }
+}
+
+#[cfg(test)]
+mod pending_leave_tests {
+    use super::*;
+
+    // Same cell shape as `imp::pending_leave.0`, shared via `Rc` so the
+    // stored closure can re-borrow it the way `close_request` does.
+    type SharedLeave = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
+
+    #[test]
+    fn run_pending_leave_drops_borrow_before_invoking() {
+        // Mirrors closing the window while an autosave is in flight: the
+        // stored closure re-enters close_request, which borrows
+        // pending_leave again. If the mutable borrow were still alive
+        // around the call, this panics with "RefCell already mutably
+        // borrowed" and the app aborts.
+        let cell: SharedLeave = Rc::new(RefCell::new(None));
+        let inner = cell.clone();
+        *cell.borrow_mut() = Some(Box::new(move || {
+            let _reentry = inner.borrow();
+        }));
+
+        run_pending_leave(&cell);
+
+        assert!(cell.borrow().is_none());
+    }
+
+    #[test]
+    fn run_pending_leave_noop_when_empty() {
+        run_pending_leave(&RefCell::new(None));
     }
 }
