@@ -1745,9 +1745,14 @@ impl PennaFrontendWindow {
     }
 
     fn finish_pending_leave(&self) {
-        if let Some(on_leave) = self.imp().pending_leave.0.borrow_mut().take() {
-            on_leave();
-        }
+        // Take the closure out before invoking it: an `if let` scrutinee
+        // keeps the `borrow_mut()` temporary alive across the block, so
+        // calling the closure in place would re-enter `close_request`
+        // while `pending_leave` is still mutably borrowed and panic.
+        let Some(on_leave) = self.imp().pending_leave.0.borrow_mut().take() else {
+            return;
+        };
+        on_leave();
     }
 
     fn guard_leave_current_entry(&self, on_leave: Box<dyn FnOnce()>) {
