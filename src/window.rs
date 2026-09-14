@@ -59,11 +59,6 @@ const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
 const ACTION_CONFLICT_ACCEPT_BOTH: &str = "conflict-accept-both";
 
-struct LinkMatch {
-    label_len: usize,
-    total_len: usize,
-}
-
 mod imp {
     use super::*;
 
@@ -3430,190 +3425,23 @@ impl PennaFrontendWindow {
         true
     }
 
-    fn parse_link_at(text: &str) -> Option<LinkMatch> {
-        if !text.starts_with('[') {
-            return None;
-        }
-
-        let close_label = text.find(']')?;
-        let after_label = text.get((close_label + 1)..)?;
-        if !after_label.starts_with('(') {
-            return None;
-        }
-
-        let close_url_rel = after_label.find(')')?;
-        if close_label <= 1 || close_url_rel <= 1 {
-            return None;
-        }
-
-        let total_byte_len = close_label + 1 + close_url_rel + 1;
-
-        Some(LinkMatch {
-            label_len: text[1..close_label].chars().count(),
-            total_len: text[..total_byte_len].chars().count(),
-        })
-    }
-
     fn apply_inline_markdown_tags(buffer: &gtk::TextBuffer, line: &str, line_start_offset: usize) {
-        let mut index = 0usize;
-        let mut bold_start = None;
-        let mut italic_start = None;
-        let mut strike_start = None;
-        let mut code_start = None;
-        let positions: Vec<(usize, usize, char)> = line
-            .char_indices()
-            .enumerate()
-            .map(|(char_index, (byte_index, ch))| (char_index, byte_index, ch))
-            .collect();
-
-        while index < positions.len() {
-            let (char_index, byte_index, ch) = positions[index];
-
-            if line[byte_index..].starts_with("**") {
-                if let Some(start) = bold_start.take() {
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + start,
-                        line_start_offset + start + 2,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_BOLD,
-                        line_start_offset + start + 2,
-                        line_start_offset + char_index,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + char_index,
-                        line_start_offset + char_index + 2,
-                    );
-                } else {
-                    bold_start = Some(char_index);
-                }
-                index += 2;
-                continue;
-            }
-
-            if ch == '*' {
-                if let Some(start) = italic_start.take() {
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + start,
-                        line_start_offset + start + 1,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_ITALIC,
-                        line_start_offset + start + 1,
-                        line_start_offset + char_index,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + char_index,
-                        line_start_offset + char_index + 1,
-                    );
-                } else {
-                    italic_start = Some(char_index);
-                }
-                index += 1;
-                continue;
-            }
-
-            if line[byte_index..].starts_with("~~") {
-                if let Some(start) = strike_start.take() {
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + start,
-                        line_start_offset + start + 2,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_STRIKETHROUGH,
-                        line_start_offset + start + 2,
-                        line_start_offset + char_index,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + char_index,
-                        line_start_offset + char_index + 2,
-                    );
-                } else {
-                    strike_start = Some(char_index);
-                }
-                index += 2;
-                continue;
-            }
-
-            if ch == '`' {
-                if let Some(start) = code_start.take() {
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + start,
-                        line_start_offset + start + 1,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_CODE,
-                        line_start_offset + start + 1,
-                        line_start_offset + char_index,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + char_index,
-                        line_start_offset + char_index + 1,
-                    );
-                } else {
-                    code_start = Some(char_index);
-                }
-                index += 1;
-                continue;
-            }
-
-            if ch == '[' {
-                if let Some(link) = Self::parse_link_at(&line[byte_index..]) {
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + char_index,
-                        line_start_offset + char_index + 1,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_LINK,
-                        line_start_offset + char_index + 1,
-                        line_start_offset + char_index + 1 + link.label_len,
-                    );
-                    Self::apply_tag_by_offset(
-                        buffer,
-                        TAG_SYNTAX,
-                        line_start_offset + char_index + 1 + link.label_len,
-                        line_start_offset + char_index + link.total_len,
-                    );
-                    index += link.total_len;
-                    continue;
-                }
-            }
-
-            index += 1;
-        }
-
-        if let Some((marker_len, checked)) = markdown::parse_checkbox_item(line) {
-            if checked {
-                Self::apply_tag_by_offset(
-                    buffer,
-                    TAG_CHECKED,
-                    line_start_offset + marker_len,
-                    line_start_offset + line.chars().count(),
-                );
-            }
+        for range in markdown::inline_ranges(line) {
+            let tag = match range.tag {
+                markdown::InlineTag::Syntax => TAG_SYNTAX,
+                markdown::InlineTag::Bold => TAG_BOLD,
+                markdown::InlineTag::Italic => TAG_ITALIC,
+                markdown::InlineTag::Strikethrough => TAG_STRIKETHROUGH,
+                markdown::InlineTag::Code => TAG_CODE,
+                markdown::InlineTag::Link => TAG_LINK,
+                markdown::InlineTag::Checked => TAG_CHECKED,
+            };
+            Self::apply_tag_by_offset(
+                buffer,
+                tag,
+                line_start_offset + range.start,
+                line_start_offset + range.end,
+            );
         }
     }
 

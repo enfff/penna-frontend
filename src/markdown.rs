@@ -21,10 +21,11 @@
 //! Pure per-line markdown classification for the editor styling pass.
 //!
 //! The editor renders markdown in place: every buffer line is classified
-//! into a block kind and window.rs maps the kinds onto text tags. Keeping
-//! the classification free of GTK lets the block rules — most importantly
-//! setext heading underlines versus thematic breaks — be unit tested
-//! directly.
+//! into a block kind and window.rs maps the kinds onto text tags. Inline
+//! emphasis, links, and checkbox state are classified the same way, into
+//! per-line tag ranges. Keeping the classification free of GTK lets the
+//! rules — most importantly setext heading underlines versus thematic
+//! breaks — be unit tested directly.
 
 /// Block classification of a single markdown line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +187,223 @@ pub(crate) fn parse_checkbox_item(line: &str) -> Option<(usize, bool)> {
         line.strip_prefix(prefix)
             .map(|_| (prefix.chars().count(), matches!(prefix.as_bytes().get(3), Some(b'x' | b'X'))))
     })
+}
+
+/// A markdown link `[label](url)` starting at the beginning of `text`;
+/// `label_len` is the label's character count (brackets excluded) and
+/// `total_len` the whole match's character count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkMatch {
+    pub label_len: usize,
+    pub total_len: usize,
+}
+
+/// Parses a markdown link that must start at byte 0 of `text`; empty
+/// labels or URLs, and unbalanced brackets, yield `None`.
+pub fn parse_link_at(text: &str) -> Option<LinkMatch> {
+    if !text.starts_with('[') {
+        return None;
+    }
+
+    let close_label = text.find(']')?;
+    let after_label = text.get((close_label + 1)..)?;
+    if !after_label.starts_with('(') {
+        return None;
+    }
+
+    let close_url_rel = after_label.find(')')?;
+    if close_label <= 1 || close_url_rel <= 1 {
+        return None;
+    }
+
+    let total_byte_len = close_label + 1 + close_url_rel + 1;
+
+    Some(LinkMatch {
+        label_len: text[1..close_label].chars().count(),
+        total_len: text[..total_byte_len].chars().count(),
+    })
+}
+
+/// Inline styles the editor styling pass recognizes inside a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlineTag {
+    /// Marker characters (`**`, `*`, `~~`, `` ` ``, `[`, `](url)`).
+    Syntax,
+    /// `**bold**` content.
+    Bold,
+    /// `*italic*` content.
+    Italic,
+    /// `~~strikethrough~~` content.
+    Strikethrough,
+    /// `` `code` `` content.
+    Code,
+    /// Link label content.
+    Link,
+    /// The remainder of a checked task-list line.
+    Checked,
+}
+
+/// A tag applied to a character range of a single line; `start` and
+/// `end` are character offsets, `start < end` not guaranteed (a pair of
+/// touching markers yields an empty content range).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InlineRange {
+    pub tag: InlineTag,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Computes the inline tag ranges for one line, in the order the styling
+/// pass applies them: each closed emphasis pair emits opening marker,
+/// content, closing marker; a link emits `[`, label, `](url)`; a checked
+/// checkbox line appends one range over the text after its marker. An
+/// unclosed opener at end of line contributes nothing.
+pub fn inline_ranges(line: &str) -> Vec<InlineRange> {
+    let mut ranges = Vec::new();
+    let mut bold_start = None;
+    let mut italic_start = None;
+    let mut strike_start = None;
+    let mut code_start = None;
+    let positions: Vec<(usize, usize, char)> = line
+        .char_indices()
+        .enumerate()
+        .map(|(char_index, (byte_index, ch))| (char_index, byte_index, ch))
+        .collect();
+
+    let mut index = 0usize;
+    while index < positions.len() {
+        let (char_index, byte_index, ch) = positions[index];
+
+        if line[byte_index..].starts_with("**") {
+            if let Some(start) = bold_start.take() {
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start,
+                    end: start + 2,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Bold,
+                    start: start + 2,
+                    end: char_index,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start: char_index,
+                    end: char_index + 2,
+                });
+            } else {
+                bold_start = Some(char_index);
+            }
+            index += 2;
+            continue;
+        }
+
+        if ch == '*' {
+            if let Some(start) = italic_start.take() {
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start,
+                    end: start + 1,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Italic,
+                    start: start + 1,
+                    end: char_index,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start: char_index,
+                    end: char_index + 1,
+                });
+            } else {
+                italic_start = Some(char_index);
+            }
+            index += 1;
+            continue;
+        }
+
+        if line[byte_index..].starts_with("~~") {
+            if let Some(start) = strike_start.take() {
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start,
+                    end: start + 2,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Strikethrough,
+                    start: start + 2,
+                    end: char_index,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start: char_index,
+                    end: char_index + 2,
+                });
+            } else {
+                strike_start = Some(char_index);
+            }
+            index += 2;
+            continue;
+        }
+
+        if ch == '`' {
+            if let Some(start) = code_start.take() {
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start,
+                    end: start + 1,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Code,
+                    start: start + 1,
+                    end: char_index,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start: char_index,
+                    end: char_index + 1,
+                });
+            } else {
+                code_start = Some(char_index);
+            }
+            index += 1;
+            continue;
+        }
+
+        if ch == '[' {
+            if let Some(link) = parse_link_at(&line[byte_index..]) {
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start: char_index,
+                    end: char_index + 1,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Link,
+                    start: char_index + 1,
+                    end: char_index + 1 + link.label_len,
+                });
+                ranges.push(InlineRange {
+                    tag: InlineTag::Syntax,
+                    start: char_index + 1 + link.label_len,
+                    end: char_index + link.total_len,
+                });
+                index += link.total_len;
+                continue;
+            }
+        }
+
+        index += 1;
+    }
+
+    if let Some((marker_len, true)) = parse_checkbox_item(line) {
+        ranges.push(InlineRange {
+            tag: InlineTag::Checked,
+            start: marker_len,
+            end: line.chars().count(),
+        });
+    }
+
+    ranges
 }
 
 #[cfg(test)]
@@ -488,6 +706,196 @@ mod tests {
         assert_eq!(
             classes("a\nb"),
             vec![LineClass::Paragraph, LineClass::Paragraph]
+        );
+    }
+
+    // --- inline tag ranges (T35) ------------------------------------------
+
+    fn ranges(text: &str) -> Vec<(InlineTag, usize, usize)> {
+        inline_ranges(text)
+            .into_iter()
+            .map(|range| (range.tag, range.start, range.end))
+            .collect()
+    }
+
+    #[test]
+    fn bold_pair() {
+        assert_eq!(
+            ranges("**bold**"),
+            vec![
+                (InlineTag::Syntax, 0, 2),
+                (InlineTag::Bold, 2, 6),
+                (InlineTag::Syntax, 6, 8)
+            ]
+        );
+    }
+
+    #[test]
+    fn italic_pair() {
+        assert_eq!(
+            ranges("*italic*"),
+            vec![
+                (InlineTag::Syntax, 0, 1),
+                (InlineTag::Italic, 1, 7),
+                (InlineTag::Syntax, 7, 8)
+            ]
+        );
+    }
+
+    #[test]
+    fn strike_pair() {
+        assert_eq!(
+            ranges("~~strike~~"),
+            vec![
+                (InlineTag::Syntax, 0, 2),
+                (InlineTag::Strikethrough, 2, 8),
+                (InlineTag::Syntax, 8, 10)
+            ]
+        );
+    }
+
+    #[test]
+    fn code_pair() {
+        assert_eq!(
+            ranges("`code`"),
+            vec![
+                (InlineTag::Syntax, 0, 1),
+                (InlineTag::Code, 1, 5),
+                (InlineTag::Syntax, 5, 6)
+            ]
+        );
+    }
+
+    #[test]
+    fn unclosed_openers_emit_nothing() {
+        assert_eq!(ranges("**bold"), Vec::new());
+        assert_eq!(ranges("*ital"), Vec::new());
+        assert_eq!(ranges("~~str"), Vec::new());
+        assert_eq!(ranges("`cod"), Vec::new());
+    }
+
+    #[test]
+    fn touching_markers_yield_empty_content_range() {
+        // `****` opens and closes on itself; the empty bold content range
+        // is emitted but filtered out by the tag application loop.
+        assert_eq!(
+            ranges("****"),
+            vec![
+                (InlineTag::Syntax, 0, 2),
+                (InlineTag::Bold, 2, 2),
+                (InlineTag::Syntax, 2, 4)
+            ]
+        );
+    }
+
+    #[test]
+    fn bold_nested_italic_emits_inner_pair_first() {
+        assert_eq!(
+            ranges("**a *b* c**"),
+            vec![
+                (InlineTag::Syntax, 4, 5),
+                (InlineTag::Italic, 5, 6),
+                (InlineTag::Syntax, 6, 7),
+                (InlineTag::Syntax, 0, 2),
+                (InlineTag::Bold, 2, 9),
+                (InlineTag::Syntax, 9, 11)
+            ]
+        );
+    }
+
+    #[test]
+    fn italic_around_bold_spans_the_whole_line() {
+        assert_eq!(
+            ranges("*a **b** c*"),
+            vec![
+                (InlineTag::Syntax, 3, 5),
+                (InlineTag::Bold, 5, 6),
+                (InlineTag::Syntax, 6, 8),
+                (InlineTag::Syntax, 0, 1),
+                (InlineTag::Italic, 1, 10),
+                (InlineTag::Syntax, 10, 11)
+            ]
+        );
+    }
+
+    #[test]
+    fn link_ranges() {
+        assert_eq!(
+            ranges("see [label](url) now"),
+            vec![
+                (InlineTag::Syntax, 4, 5),
+                (InlineTag::Link, 5, 10),
+                (InlineTag::Syntax, 10, 16)
+            ]
+        );
+    }
+
+    #[test]
+    fn links_need_nonempty_label_and_url() {
+        assert_eq!(ranges("[](u)"), Vec::new());
+        assert_eq!(ranges("[a]()"), Vec::new());
+        assert_eq!(ranges("[a]b"), Vec::new());
+        assert_eq!(ranges("[a"), Vec::new());
+    }
+
+    #[test]
+    fn link_offsets_are_chars_not_bytes() {
+        // `é` is two bytes wide; ranges stay in character space.
+        assert_eq!(
+            ranges("[é](u)"),
+            vec![
+                (InlineTag::Syntax, 0, 1),
+                (InlineTag::Link, 1, 2),
+                (InlineTag::Syntax, 2, 6)
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_link_at_requires_full_shape() {
+        assert_eq!(parse_link_at("x](y)"), None);
+        assert_eq!(
+            parse_link_at("[a](b)"),
+            Some(LinkMatch {
+                label_len: 1,
+                total_len: 6
+            })
+        );
+    }
+
+    #[test]
+    fn checked_checkbox_covers_remainder_of_line() {
+        assert_eq!(ranges("- [x] done"), vec![(InlineTag::Checked, 6, 10)]);
+        assert_eq!(ranges("- [X] done"), vec![(InlineTag::Checked, 6, 10)]);
+    }
+
+    #[test]
+    fn unchecked_or_unlisted_brackets_have_no_ranges() {
+        assert_eq!(ranges("- [ ] todo"), Vec::new());
+        assert_eq!(ranges("[x] not a list"), Vec::new());
+    }
+
+    #[test]
+    fn realistic_mixed_line_keeps_application_order() {
+        assert_eq!(
+            ranges("**T** and *i* and ~~s~~ and `c` and [l](u)"),
+            vec![
+                (InlineTag::Syntax, 0, 2),
+                (InlineTag::Bold, 2, 3),
+                (InlineTag::Syntax, 3, 5),
+                (InlineTag::Syntax, 10, 11),
+                (InlineTag::Italic, 11, 12),
+                (InlineTag::Syntax, 12, 13),
+                (InlineTag::Syntax, 18, 20),
+                (InlineTag::Strikethrough, 20, 21),
+                (InlineTag::Syntax, 21, 23),
+                (InlineTag::Syntax, 28, 29),
+                (InlineTag::Code, 29, 30),
+                (InlineTag::Syntax, 30, 31),
+                (InlineTag::Syntax, 36, 37),
+                (InlineTag::Link, 37, 38),
+                (InlineTag::Syntax, 38, 42)
+            ]
         );
     }
 }
