@@ -1,9 +1,11 @@
 //! Sync boundary between the window UI and the engine.
 //!
-//! Every engine call the window makes is funneled through these wrappers:
-//! each one takes the engine mutex, performs a single engine operation and
-//! hands the plain result back, so `window.rs` only deals with UI feedback
-//! for what comes out of here.
+//! Every engine call the window makes is funneled through these wrappers, so
+//! `window.rs` and `grid.rs` never touch the engine mutex themselves: the
+//! plain wrappers take the engine mutex on the calling thread and hand the
+//! plain result back; the offloaded wrappers run the engine work on a worker
+//! thread (via [`offload`]) and hand the plain result back on the main
+//! thread.
 
 use std::path::PathBuf;
 
@@ -21,9 +23,10 @@ fn engine_guard(window: &PennaFrontendWindow) -> std::sync::MutexGuard<'_, Engin
     window.imp().engine.lock().unwrap()
 }
 
-/// Runs a blocking engine operation off the main thread, then hands the result
-/// back on the main thread. Keeps git I/O off the UI thread so the window never
-/// freezes while an operation is in flight. `work` locks the engine itself;
+/// Worker primitive behind the offloaded wrappers below: runs a blocking
+/// engine operation off the main thread, then hands the result back on the
+/// main thread. Keeps git I/O off the UI thread so the window never freezes
+/// while an operation is in flight. `work` owns the engine lock itself;
 /// `done` runs on the main thread and must perform all UI updates for the
 /// result.
 ///
@@ -32,7 +35,7 @@ fn engine_guard(window: &PennaFrontendWindow) -> std::sync::MutexGuard<'_, Engin
 /// invoked through `idle_add_local`, which keeps everything on the main thread
 /// and does not require `Send`. If the window is destroyed before the result
 /// lands, `done` is a no-op (its own weak ref fails to upgrade).
-pub(crate) fn offload<T, W, D>(
+fn offload<T, W, D>(
     window: &PennaFrontendWindow,
     work: W,
     done: D,
@@ -172,5 +175,125 @@ pub fn entries_fingerprint(
 
 pub fn entries_directory(window: &PennaFrontendWindow, handle: JournalHandle) -> Option<PathBuf> {
     engine_guard(window).entries_directory(handle)
+}
+
+/// Everything the notes grid needs, read together in one off-main-thread pass:
+/// the entry list, conflicted ids, per-entry contents, and the journal status.
+pub struct GridData {
+    pub entries: Vec<EntrySummary>,
+    pub conflicted_ids: Vec<String>,
+    pub contents: Vec<String>,
+    pub status: Option<JournalStatus>,
+}
+
+/// Result of an off-main-thread save: the commit outcome plus the fresh
+/// journal status, read together under a single engine lock.
+pub struct SaveOutcome {
+    pub result: Result<(), String>,
+    pub status: Option<JournalStatus>,
+}
+
+/// Result of an off-main-thread disk reload: the reloaded entry count plus the
+/// fresh fingerprint, read together under a single engine lock.
+pub struct ReloadReport {
+    pub count: Result<usize, String>,
+    pub fingerprint: Option<u64>,
+}
+
+/// Loads everything the notes grid needs (entries, conflicted ids, contents,
+/// status) on a worker thread, then hands the [`GridData`] to `done` on the
+/// main thread.
+pub fn grid_entry_data(
+    window: &PennaFrontendWindow,
+    handle: JournalHandle,
+    done: impl FnOnce(GridData) + 'static,
+) {
+    offload(
+        window,
+        move |engine| {
+            let engine = engine.lock().unwrap();
+            let entries = engine.list_entries(handle);
+            let conflicted_ids = engine.conflicted_entry_ids(handle);
+            let contents = entries
+                .iter()
+                .map(|entry| {
+                    engine
+                        .get_entry(handle, &entry.entry_id)
+                        .map(|record| record.content)
+                        .unwrap_or_default()
+                })
+                .collect();
+            let status = engine.journal_status(handle);
+            GridData {
+                entries,
+                conflicted_ids,
+                contents,
+                status,
+            }
+        },
+        done,
+    );
+}
+
+/// Commits an entry save on a worker thread (the git commit), grabbing the
+/// fresh status under the same lock, then hands the [`SaveOutcome`] to `done`
+/// on the main thread.
+pub fn save_entry_outcome(
+    window: &PennaFrontendWindow,
+    handle: JournalHandle,
+    entry_id: String,
+    content: String,
+    tags: Vec<String>,
+    done: impl FnOnce(SaveOutcome) + 'static,
+) {
+    offload(
+        window,
+        move |engine| {
+            let mut engine = engine.lock().unwrap();
+            let result = engine.entry_save(handle, &entry_id, &content, &tags);
+            // Grab the fresh status under the same lock so the status bar
+            // can update without a second main-thread git read.
+            let status = engine.journal_status(handle);
+            SaveOutcome { result, status }
+        },
+        done,
+    );
+}
+
+/// Reads the entries fingerprint on a worker thread, then hands the result to
+/// `done` on the main thread.
+pub fn entries_fingerprint_async(
+    window: &PennaFrontendWindow,
+    handle: JournalHandle,
+    done: impl FnOnce(Result<u64, String>) + 'static,
+) {
+    offload(
+        window,
+        move |engine| {
+            let engine = engine.lock().unwrap();
+            engine.entries_fingerprint(handle)
+        },
+        done,
+    );
+}
+
+/// Reloads the entries from disk on a worker thread (our own save writes the
+/// entry file and trips the monitor, so this must not run on the main
+/// thread), then hands the [`ReloadReport`] to `done` on the main thread.
+pub fn reload_entries(
+    window: &PennaFrontendWindow,
+    handle: JournalHandle,
+    done: impl FnOnce(ReloadReport) + 'static,
+) {
+    offload(
+        window,
+        move |engine| {
+            let mut engine = engine.lock().unwrap();
+            let count = engine.reload_entries(handle);
+            let fingerprint = engine.entries_fingerprint(handle).ok();
+            ReloadReport { count, fingerprint }
+        },
+        done,
+    );
 }
 

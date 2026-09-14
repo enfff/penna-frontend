@@ -44,7 +44,7 @@ use crate::editor::{
 };
 use crate::engine::{
     ConnectResult, EngineMock, EngineOpError, EntrySnapshot, EntrySummary, JournalHandle,
-    JournalKind, JournalStatus, SyncOutcome,
+    JournalKind, SyncOutcome,
 };
 use crate::format;
 use crate::gestures;
@@ -62,20 +62,6 @@ const ACTION_CONFLICT_ACCEPT_BOTH: &str = "conflict-accept-both";
 struct LinkMatch {
     label_len: usize,
     total_len: usize,
-}
-
-/// Result of an off-main-thread save: the commit outcome plus the fresh
-/// journal status, read together under a single engine lock.
-struct SaveOutcome {
-    result: Result<(), String>,
-    status: Option<JournalStatus>,
-}
-
-/// Result of an off-main-thread disk reload: the reloaded entry count plus the
-/// fresh fingerprint, read together under a single engine lock.
-struct ReloadReport {
-    count: Result<usize, String>,
-    fingerprint: Option<u64>,
 }
 
 mod imp {
@@ -1867,21 +1853,16 @@ impl PennaFrontendWindow {
         // The git commit runs off the main thread so the window never freezes;
         // the result is applied on the main thread once it lands.
         imp.sync_status_label.set_label(&i18n::saving());
-        let save_entry_id = entry_id.clone();
-        sync::offload::<SaveOutcome, _, _>(
+        sync::save_entry_outcome(
             self,
-            move |engine| {
-                let mut engine = engine.lock().unwrap();
-                let result = engine.entry_save(handle, &save_entry_id, &content, &tags);
-                // Grab the fresh status under the same lock so the status bar
-                // can update without a second main-thread git read.
-                let status = engine.journal_status(handle);
-                SaveOutcome { result, status }
-            },
+            handle,
+            entry_id.clone(),
+            content,
+            tags,
             glib::clone!(
                 #[weak(rename_to = window)]
                 self,
-                move |outcome: SaveOutcome| match outcome.result {
+                move |outcome: sync::SaveOutcome| match outcome.result {
                     Ok(()) => {
                         let imp = window.imp();
                         // A save only lets us proceed with a pending leave if
@@ -2385,12 +2366,9 @@ impl PennaFrontendWindow {
 
         // The fingerprint read runs off the main thread so the periodic check
         // never freezes the UI; a genuine change is reloaded when it lands.
-        sync::offload::<Result<u64, String>, _, _>(
+        sync::entries_fingerprint_async(
             self,
-            move |engine| {
-                let engine = engine.lock().unwrap();
-                engine.entries_fingerprint(handle)
-            },
+            handle,
             glib::clone!(
                 #[weak(rename_to = window)]
                 self,
@@ -2425,18 +2403,13 @@ impl PennaFrontendWindow {
         // reload + fingerprint runs off the main thread (no freeze); the grid
         // and status update once it lands.
         let status_prefix = status_prefix.to_string();
-        sync::offload::<ReloadReport, _, _>(
+        sync::reload_entries(
             self,
-            move |engine| {
-                let mut engine = engine.lock().unwrap();
-                let count = engine.reload_entries(handle);
-                let fingerprint = engine.entries_fingerprint(handle).ok();
-                ReloadReport { count, fingerprint }
-            },
+            handle,
             glib::clone!(
                 #[weak(rename_to = window)]
                 self,
-                move |report: ReloadReport| match report.count {
+                move |report: sync::ReloadReport| match report.count {
                     Ok(count) => {
                         window.apply_reload_report(count, report.fingerprint, &status_prefix);
                     }

@@ -11,7 +11,7 @@ use gtk::pango;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
-use crate::engine::{EntrySummary, JournalStatus};
+use crate::engine::JournalStatus;
 use crate::format;
 use crate::i18n;
 use crate::sync;
@@ -19,13 +19,6 @@ use crate::window::PennaFrontendWindow;
 
 const TAG_ROW_SPACING: i32 = 6;
 const TAG_ROW_HORIZONTAL_SLACK: i32 = 24;
-
-struct GridData {
-    entries: Vec<EntrySummary>,
-    conflicted_ids: Vec<String>,
-    contents: Vec<String>,
-    status: Option<JournalStatus>,
-}
 
 pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
     let imp = window.imp();
@@ -38,40 +31,20 @@ pub fn refresh_notes_grid(window: &PennaFrontendWindow) {
     // The journal reads (list, per-note content, conflicted ids, status) run
     // off the main thread so refreshing the grid never freezes the UI. Only
     // widget building stays on the main thread, once the data lands.
-    sync::offload(
+    sync::grid_entry_data(
         window,
-        move |engine| {
-            let engine = engine.lock().unwrap();
-            let entries = engine.list_entries(handle);
-            let conflicted_ids = engine.conflicted_entry_ids(handle);
-            let contents = entries
-                .iter()
-                .map(|entry| {
-                    engine
-                        .get_entry(handle, &entry.entry_id)
-                        .map(|record| record.content)
-                        .unwrap_or_default()
-                })
-                .collect();
-            let status = engine.journal_status(handle);
-            GridData {
-                entries,
-                conflicted_ids,
-                contents,
-                status,
-            }
-        },
+        handle,
         glib::clone!(
             #[weak(rename_to = window)]
             window,
-            move |data: GridData| {
+            move |data: sync::GridData| {
                 build_grid_rows(&window, data, &query)
             }
         ),
     );
 }
 
-fn build_grid_rows(window: &PennaFrontendWindow, data: GridData, query: &str) {
+fn build_grid_rows(window: &PennaFrontendWindow, data: sync::GridData, query: &str) {
     let imp = window.imp();
 
     while let Some(child) = imp.notes_flowbox.first_child() {
