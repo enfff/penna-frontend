@@ -6,6 +6,8 @@ use std::time::UNIX_EPOCH;
 
 use penna_engine::{CreateEntryRequest, PennaEngine, UpdateEntryRequest};
 
+use crate::i18n;
+
 #[derive(Clone, Debug)]
 pub struct EntryRecord {
     pub entry_id: String,
@@ -118,7 +120,7 @@ impl EngineOpError {
     pub fn to_display_string(&self) -> String {
         match self {
             Self::AuthRequired { remote_url } => {
-                format!("authentication required for remote {remote_url}")
+                i18n::auth_required_for_remote(remote_url)
             }
             Self::Other(message) => message.clone(),
         }

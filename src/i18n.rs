@@ -261,6 +261,126 @@ pub fn clone_failed(err: &str) -> String {
     gettext("Clone failed: {}").replace("{}", err)
 }
 
+pub fn new_diary_initialized() -> String {
+    gettext("New diary initialized and connected")
+}
+
+pub fn existing_journal_connected() -> String {
+    gettext("Existing journal connected")
+}
+
+pub fn monitor_files_failed(err: &str) -> String {
+    gettext("Unable to monitor repository files: {}").replace("{}", err)
+}
+
+pub fn external_update_detected() -> String {
+    gettext("Detected external update.")
+}
+
+pub fn inspect_files_failed(err: &str) -> String {
+    gettext("Unable to inspect repository files: {}").replace("{}", err)
+}
+
+pub fn reload_entries_failed(err: &str) -> String {
+    gettext("Unable to reload entries from disk: {}").replace("{}", err)
+}
+
+pub fn entries_count_label(count: usize) -> String {
+    gettext("Entries: {}").replace("{}", &count.to_string())
+}
+
+pub fn tags_title() -> String {
+    gettext("Tags")
+}
+
+pub fn tags_filter_placeholder() -> String {
+    gettext("Filter or create a tag")
+}
+
+pub fn tags_empty_title() -> String {
+    gettext("No tags yet")
+}
+
+pub fn tags_empty_hint() -> String {
+    gettext("Type a name above to create your first tag.")
+}
+
+/// Markup row offered in the tags dialog when the filter matches no tag.
+/// `escaped_tag` must already be markup-escaped.
+pub fn add_tag_row(escaped_tag: &str) -> String {
+    gettext("Add tag “<b>{}</b>”").replace("{}", escaped_tag)
+}
+
+pub fn sync_up_to_date() -> String {
+    gettext("Journal up to date")
+}
+
+pub fn sync_pulled() -> String {
+    gettext("Journal updated from remote")
+}
+
+pub fn sync_pushed() -> String {
+    gettext("Journal pushed to remote")
+}
+
+pub fn sync_no_remote() -> String {
+    gettext("No remote configured for this journal")
+}
+
+pub fn sync_no_branch() -> String {
+    gettext("Journal has no branch yet")
+}
+
+pub fn sync_diverged() -> String {
+    gettext("Journal diverged from remote")
+}
+
+pub fn merge_started(count: usize) -> String {
+    ngettext(
+        "Merge started: {} note needs conflict resolution",
+        "Merge started: {} notes need conflict resolution",
+        count as u32,
+    )
+    .replace("{}", &count.to_string())
+}
+
+pub fn sync_state_other(state: &str) -> String {
+    gettext("Sync state: {}").replace("{}", state)
+}
+
+pub fn journal_status_details(
+    branch: &str,
+    head_commit: &str,
+    dirty: bool,
+    entry_count: usize,
+) -> String {
+    let dirty = dirty.to_string();
+    let entry_count = entry_count.to_string();
+    let template = gettext("Branch: {} | head: {} | dirty: {} | entries: {}");
+    let mut out = String::new();
+    let mut rest = template.as_str();
+    for value in [branch, head_commit, dirty.as_str(), entry_count.as_str()] {
+        match rest.find("{}") {
+            Some(pos) => {
+                out.push_str(&rest[..pos]);
+                out.push_str(value);
+                rest = &rest[pos + 2..];
+            }
+            None => break,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+pub fn merge_in_progress_unresolved(count: usize) -> String {
+    gettext("merge in progress: {} unresolved").replace("{}", &count.to_string())
+}
+
+pub fn auth_required_for_remote(remote_url: &str) -> String {
+    gettext("authentication required for remote {}").replace("{}", remote_url)
+}
+
 #[cfg(test)]
 mod i18n_surface_tests {
     use super::*;
@@ -324,6 +444,77 @@ mod i18n_surface_tests {
         assert_eq!(clone_action_label(), "Clone");
         assert_eq!(choose_clone_destination(), "Choose a folder");
         assert_eq!(clone_url_required(), "Enter a repository URL.");
+    }
+
+    #[test]
+    fn connection_and_status_helpers_return_english_msgids() {
+        c_locale();
+        assert_eq!(new_diary_initialized(), "New diary initialized and connected");
+        assert_eq!(existing_journal_connected(), "Existing journal connected");
+        assert_eq!(external_update_detected(), "Detected external update.");
+        assert_eq!(tags_title(), "Tags");
+        assert_eq!(tags_filter_placeholder(), "Filter or create a tag");
+        assert_eq!(tags_empty_title(), "No tags yet");
+        assert_eq!(tags_empty_hint(), "Type a name above to create your first tag.");
+        assert_eq!(sync_up_to_date(), "Journal up to date");
+        assert_eq!(sync_pulled(), "Journal updated from remote");
+        assert_eq!(sync_pushed(), "Journal pushed to remote");
+        assert_eq!(sync_no_remote(), "No remote configured for this journal");
+        assert_eq!(sync_no_branch(), "Journal has no branch yet");
+        assert_eq!(sync_diverged(), "Journal diverged from remote");
+    }
+
+    #[test]
+    fn multi_placeholder_helpers_fill_in_order() {
+        c_locale();
+        assert_eq!(
+            monitor_files_failed("g-io-error"),
+            "Unable to monitor repository files: g-io-error"
+        );
+        assert_eq!(
+            inspect_files_failed("perm"),
+            "Unable to inspect repository files: perm"
+        );
+        assert_eq!(
+            reload_entries_failed("io"),
+            "Unable to reload entries from disk: io"
+        );
+        assert_eq!(entries_count_label(42), "Entries: 42");
+        assert_eq!(add_tag_row("work"), "Add tag \u{201C}<b>work</b>\u{201D}");
+        assert_eq!(sync_state_other("reconciled"), "Sync state: reconciled");
+        assert_eq!(
+            journal_status_details("main", "abc123", false, 7),
+            "Branch: main | head: abc123 | dirty: false | entries: 7"
+        );
+        assert_eq!(
+            journal_status_details("main", "abc123", true, 0),
+            "Branch: main | head: abc123 | dirty: true | entries: 0"
+        );
+        assert_eq!(
+            merge_in_progress_unresolved(3),
+            "merge in progress: 3 unresolved"
+        );
+        assert_eq!(
+            auth_required_for_remote("https://git.example.com/x.git"),
+            "authentication required for remote https://git.example.com/x.git"
+        );
+    }
+
+    #[test]
+    fn merge_started_keeps_singular_plural_split() {
+        c_locale();
+        assert_eq!(
+            merge_started(1),
+            "Merge started: 1 note needs conflict resolution"
+        );
+        assert_eq!(
+            merge_started(2),
+            "Merge started: 2 notes need conflict resolution"
+        );
+        assert_eq!(
+            merge_started(12),
+            "Merge started: 12 notes need conflict resolution"
+        );
     }
 
     #[test]

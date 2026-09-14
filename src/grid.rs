@@ -204,14 +204,16 @@ fn build_grid_rows(window: &PennaFrontendWindow, data: GridData, query: &str) {
 /// One-line status-bar summary of the journal (branch, head, dirty flag,
 /// entry count, and any in-progress merge).
 pub(crate) fn status_details(status: &JournalStatus) -> String {
-    let mut details = format!(
-        "Branch: {} | head: {} | dirty: {} | entries: {}",
-        status.branch, status.head_commit, status.dirty, status.entry_count
+    let mut details = i18n::journal_status_details(
+        &status.branch,
+        &status.head_commit,
+        status.dirty,
+        status.entry_count,
     );
     if status.merge_in_progress {
-        details.push_str(&format!(
-            " | merge in progress: {} unresolved",
-            status.conflicted_entry_ids.len()
+        details.push(' ');
+        details.push_str(&i18n::merge_in_progress_unresolved(
+            status.conflicted_entry_ids.len(),
         ));
     }
     details

@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend 0.1.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:40+0200\n"
+"POT-Creation-Date: 2026-09-14 16:47+0200\n"
 "PO-Revision-Date: 2026-08-26 00:40+0200\n"
 "Last-Translator: Francesco P. Carmone\n"
 "Language-Team: French\n"
@@ -417,6 +417,114 @@ msgstr ""
 #, fuzzy, rust-format
 msgid "Clone failed: {}"
 msgstr "Échec de la synchronisation : {}"
+
+#: src/i18n.rs:265
+#, fuzzy
+msgid "New diary initialized and connected"
+msgstr "Rechercher dans le titre et le contenu"
+
+#: src/i18n.rs:269
+msgid "Existing journal connected"
+msgstr ""
+
+#: src/i18n.rs:273
+#, rust-format
+msgid "Unable to monitor repository files: {}"
+msgstr ""
+
+#: src/i18n.rs:277
+msgid "Detected external update."
+msgstr ""
+
+#: src/i18n.rs:281
+#, rust-format
+msgid "Unable to inspect repository files: {}"
+msgstr ""
+
+#: src/i18n.rs:285
+#, rust-format
+msgid "Unable to reload entries from disk: {}"
+msgstr ""
+
+#: src/i18n.rs:289
+#, rust-format
+msgid "Entries: {}"
+msgstr ""
+
+#: src/i18n.rs:293
+msgid "Tags"
+msgstr ""
+
+#: src/i18n.rs:297
+msgid "Filter or create a tag"
+msgstr ""
+
+#: src/i18n.rs:301
+#, fuzzy
+msgid "No tags yet"
+msgstr "Aucune note pour l’instant"
+
+#: src/i18n.rs:305
+msgid "Type a name above to create your first tag."
+msgstr ""
+
+#. / Markup row offered in the tags dialog when the filter matches no tag.
+#. / `escaped_tag` must already be markup-escaped.
+#: src/i18n.rs:311
+#, rust-format
+msgid "Add tag “<b>{}</b>”"
+msgstr ""
+
+#: src/i18n.rs:315
+msgid "Journal up to date"
+msgstr ""
+
+#: src/i18n.rs:319
+msgid "Journal updated from remote"
+msgstr ""
+
+#: src/i18n.rs:323
+msgid "Journal pushed to remote"
+msgstr ""
+
+#: src/i18n.rs:327
+msgid "No remote configured for this journal"
+msgstr ""
+
+#: src/i18n.rs:331
+msgid "Journal has no branch yet"
+msgstr ""
+
+#: src/i18n.rs:335
+msgid "Journal diverged from remote"
+msgstr ""
+
+#: src/i18n.rs:340
+#, fuzzy, rust-format
+msgid "Merge started: {} note needs conflict resolution"
+msgid_plural "Merge started: {} notes need conflict resolution"
+msgstr[0] "{} note nécessite une résolution de conflit"
+msgstr[1] "{} notes nécessitent une résolution de conflit"
+
+#: src/i18n.rs:348
+#, fuzzy, rust-format
+msgid "Sync state: {}"
+msgstr "Échec de la synchronisation : {}"
+
+#: src/i18n.rs:359
+#, rust-format
+msgid "Branch: {} | head: {} | dirty: {} | entries: {}"
+msgstr ""
+
+#: src/i18n.rs:377
+#, rust-format
+msgid "merge in progress: {} unresolved"
+msgstr ""
+
+#: src/i18n.rs:381
+#, rust-format
+msgid "authentication required for remote {}"
+msgstr ""
 
 #: src/shortcuts-dialog.ui:8
 msgid "Application"

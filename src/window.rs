@@ -1329,8 +1329,8 @@ impl PennaFrontendWindow {
         match connect_result {
             Ok(result) => {
                 let sync_message = match result.journal_kind {
-                    JournalKind::New => "New diary initialized and connected",
-                    JournalKind::Existing => "Existing journal connected",
+                    JournalKind::New => i18n::new_diary_initialized(),
+                    JournalKind::Existing => i18n::existing_journal_connected(),
                 };
                 let details = format!(
                     "{sync_message} | branch: {} | capabilities: {}",
@@ -2309,7 +2309,7 @@ impl PennaFrontendWindow {
                 Ok(monitor) => monitor,
                 Err(err) => {
                     imp.sync_status_label
-                        .set_label(&format!("Unable to monitor repository files: {err}"));
+                        .set_label(&i18n::monitor_files_failed(&err.to_string()));
                     return;
                 }
             };
@@ -2327,7 +2327,7 @@ impl PennaFrontendWindow {
                         | gio::FileMonitorEvent::MovedIn
                         | gio::FileMonitorEvent::MovedOut
                 ) {
-                    window.reload_entries_from_disk("Detected external update.");
+                    window.reload_entries_from_disk(&i18n::external_update_detected());
                 }
             }
         ));
@@ -2403,12 +2403,12 @@ impl PennaFrontendWindow {
                             .as_ref()
                             != Some(&current)
                         {
-                            window.reload_entries_from_disk("Detected external update.");
+                            window.reload_entries_from_disk(&i18n::external_update_detected());
                         }
                     }
                     Err(err) => {
                         window.imp().sync_status_label
-                            .set_label(&format!("Unable to inspect repository files: {err}"));
+                            .set_label(&i18n::inspect_files_failed(&err.to_string()));
                     }
                 }
             ),
@@ -2442,7 +2442,7 @@ impl PennaFrontendWindow {
                     }
                     Err(err) => {
                         window.imp().sync_status_label
-                            .set_label(&format!("Unable to reload entries from disk: {err}"));
+                            .set_label(&i18n::reload_entries_failed(&err.to_string()));
                     }
                 }
             ),
@@ -2454,7 +2454,7 @@ impl PennaFrontendWindow {
         grid::refresh_notes_grid(self);
         *imp.last_entries_fingerprint.borrow_mut() = fingerprint;
         imp.sync_status_label
-            .set_label(&format!("{status_prefix} Entries: {count}"));
+            .set_label(&format!("{status_prefix} {}", i18n::entries_count_label(count)));
     }
 
     /// Entry IDs start with an 8-digit `YYYYMMDD` day prefix. Returns the
@@ -2505,7 +2505,7 @@ impl PennaFrontendWindow {
         };
 
         let dialog = adw::Dialog::new();
-        dialog.set_title("Tags");
+        dialog.set_title(&i18n::tags_title());
         dialog.set_content_width(400);
         dialog.set_content_height(500);
 
@@ -2514,7 +2514,10 @@ impl PennaFrontendWindow {
         let toolbar = adw::ToolbarView::new();
         let header = adw::HeaderBar::new();
         header.add_css_class("flat");
-        header.set_title_widget(Some(&adw::WindowTitle::new("Tags", "")));
+        header.set_title_widget(Some(&adw::WindowTitle::new(
+            &i18n::tags_title(),
+            "",
+        )));
         toolbar.add_top_bar(&header);
 
         let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
@@ -2526,7 +2529,7 @@ impl PennaFrontendWindow {
         dialog.set_child(Some(&toolbar));
 
         let search_entry = gtk::SearchEntry::new();
-        search_entry.set_placeholder_text(Some("Filter or create a tag"));
+        search_entry.set_placeholder_text(Some(&i18n::tags_filter_placeholder()));
         content.append(&search_entry);
 
         let chips_flow = gtk::FlowBox::new();
@@ -2554,9 +2557,9 @@ impl PennaFrontendWindow {
         let empty_page = gtk::Box::new(gtk::Orientation::Vertical, 6);
         empty_page.set_valign(gtk::Align::Center);
         empty_page.set_halign(gtk::Align::Center);
-        let empty_title = gtk::Label::new(Some("No tags yet"));
+        let empty_title = gtk::Label::new(Some(&i18n::tags_empty_title()));
         empty_title.add_css_class("title-2");
-        let empty_hint = gtk::Label::new(Some("Type a name above to create your first tag."));
+        let empty_hint = gtk::Label::new(Some(&i18n::tags_empty_hint()));
         empty_hint.add_css_class("dim-label");
         empty_hint.set_wrap(true);
         empty_page.append(&empty_title);
@@ -2737,10 +2740,9 @@ impl PennaFrontendWindow {
 
                     let icon = gtk::Image::from_icon_name("list-add-symbolic");
                     let label = gtk::Label::new(None);
-                    label.set_markup(&format!(
-                        "Add tag \u{201C}<b>{}</b>\u{201D}",
-                        glib::markup_escape_text(&query)
-                    ));
+                    label.set_markup(&i18n::add_tag_row(&glib::markup_escape_text(
+                        &query,
+                    )));
                     label.set_halign(gtk::Align::Start);
 
                     row_box.append(&icon);
@@ -3779,29 +3781,14 @@ impl PennaFrontendWindow {
 /// User-facing one-liner for a sync outcome (status line + tests).
 fn sync_status_message(outcome: &SyncOutcome) -> String {
     match outcome.status.as_str() {
-        "up_to_date" => "Journal up to date".to_string(),
-        "pulled" => "Journal updated from remote".to_string(),
-        "pushed" => "Journal pushed to remote".to_string(),
-        "no_remote" => "No remote configured for this journal".to_string(),
-        "no_branch" => "Journal has no branch yet".to_string(),
-        "diverged" if outcome.conflicted_entry_ids.is_empty() => {
-            "Journal diverged from remote".to_string()
-        }
-        "diverged" => format!(
-            "Merge started: {} note{} need{} conflict resolution",
-            outcome.conflicted_entry_ids.len(),
-            if outcome.conflicted_entry_ids.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            if outcome.conflicted_entry_ids.len() == 1 {
-                "s"
-            } else {
-                ""
-            },
-        ),
-        other => format!("Sync state: {other}"),
+        "up_to_date" => i18n::sync_up_to_date(),
+        "pulled" => i18n::sync_pulled(),
+        "pushed" => i18n::sync_pushed(),
+        "no_remote" => i18n::sync_no_remote(),
+        "no_branch" => i18n::sync_no_branch(),
+        "diverged" if outcome.conflicted_entry_ids.is_empty() => i18n::sync_diverged(),
+        "diverged" => i18n::merge_started(outcome.conflicted_entry_ids.len()),
+        other => i18n::sync_state_other(other),
     }
 }
 
