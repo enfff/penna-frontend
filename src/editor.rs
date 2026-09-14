@@ -12,6 +12,7 @@ use gtk::pango;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
+use crate::i18n;
 use crate::settings;
 use crate::window::PennaFrontendWindow;
 
@@ -97,12 +98,13 @@ pub fn apply_editor_mode(window: &PennaFrontendWindow) {
     } else {
         "view-reveal-symbolic"
     });
+    let viewer_tooltip = if viewer_mode {
+        i18n::viewer_mode_off_tooltip()
+    } else {
+        i18n::viewer_mode_on_tooltip()
+    };
     imp.viewer_mode_button
-        .set_tooltip_text(Some(if viewer_mode {
-            "Turn off viewer mode"
-        } else {
-            "Turn on viewer mode"
-        }));
+        .set_tooltip_text(Some(viewer_tooltip.as_str()));
 
     // Entering viewer mode hides the inline resolution buttons; leaving it
     // brings them back for any conflicts still present.

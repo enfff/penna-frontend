@@ -381,6 +381,54 @@ pub fn auth_required_for_remote(remote_url: &str) -> String {
     gettext("authentication required for remote {}").replace("{}", remote_url)
 }
 
+pub fn select_label() -> String {
+    gettext("Select")
+}
+
+pub fn entry_date_format_title() -> String {
+    gettext("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)")
+}
+
+pub fn sans_font_label() -> String {
+    gettext("Sans")
+}
+
+pub fn serif_font_label() -> String {
+    gettext("Serif")
+}
+
+pub fn custom_font_label() -> String {
+    gettext("Custom")
+}
+
+pub fn adwaita_sans_caption() -> String {
+    gettext("Adwaita Sans")
+}
+
+pub fn free_serif_caption() -> String {
+    gettext("Free Serif")
+}
+
+pub fn font_size_title() -> String {
+    gettext("Font size")
+}
+
+pub fn font_family_picker_title() -> String {
+    gettext("Select a Font Family")
+}
+
+pub fn font_family_search_placeholder() -> String {
+    gettext("Search font families")
+}
+
+pub fn viewer_mode_on_tooltip() -> String {
+    gettext("Turn on viewer mode")
+}
+
+pub fn viewer_mode_off_tooltip() -> String {
+    gettext("Turn off viewer mode")
+}
+
 #[cfg(test)]
 mod i18n_surface_tests {
     use super::*;
@@ -462,6 +510,26 @@ mod i18n_surface_tests {
         assert_eq!(sync_no_remote(), "No remote configured for this journal");
         assert_eq!(sync_no_branch(), "Journal has no branch yet");
         assert_eq!(sync_diverged(), "Journal diverged from remote");
+    }
+
+    #[test]
+    fn dialogs_preferences_and_tooltip_helpers_return_english_msgids() {
+        c_locale();
+        assert_eq!(select_label(), "Select");
+        assert_eq!(
+            entry_date_format_title(),
+            "Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)"
+        );
+        assert_eq!(sans_font_label(), "Sans");
+        assert_eq!(serif_font_label(), "Serif");
+        assert_eq!(custom_font_label(), "Custom");
+        assert_eq!(adwaita_sans_caption(), "Adwaita Sans");
+        assert_eq!(free_serif_caption(), "Free Serif");
+        assert_eq!(font_size_title(), "Font size");
+        assert_eq!(font_family_picker_title(), "Select a Font Family");
+        assert_eq!(font_family_search_placeholder(), "Search font families");
+        assert_eq!(viewer_mode_on_tooltip(), "Turn on viewer mode");
+        assert_eq!(viewer_mode_off_tooltip(), "Turn off viewer mode");
     }
 
     #[test]

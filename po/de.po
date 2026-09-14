@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: penna-frontend 0.1.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:47+0200\n"
+"POT-Creation-Date: 2026-09-14 17:01+0200\n"
 "PO-Revision-Date: 2026-08-26 00:40+0200\n"
 "Last-Translator: Francesco P. Carmone\n"
 "Language-Team: German\n"
@@ -526,6 +526,56 @@ msgstr ""
 msgid "authentication required for remote {}"
 msgstr ""
 
+#: src/i18n.rs:385
+msgid "Select"
+msgstr ""
+
+#: src/i18n.rs:389
+msgid ""
+"Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)"
+msgstr ""
+
+#: src/i18n.rs:393
+msgid "Sans"
+msgstr ""
+
+#: src/i18n.rs:397
+msgid "Serif"
+msgstr ""
+
+#: src/i18n.rs:401
+msgid "Custom"
+msgstr ""
+
+#: src/i18n.rs:405
+msgid "Adwaita Sans"
+msgstr ""
+
+#: src/i18n.rs:409
+msgid "Free Serif"
+msgstr ""
+
+#: src/i18n.rs:413
+msgid "Font size"
+msgstr ""
+
+#: src/i18n.rs:417
+msgid "Select a Font Family"
+msgstr ""
+
+#: src/i18n.rs:421
+msgid "Search font families"
+msgstr ""
+
+#: src/i18n.rs:425 src/window.ui:51
+msgid "Turn on viewer mode"
+msgstr "Ansichtsmodus einschalten"
+
+#: src/i18n.rs:429
+#, fuzzy
+msgid "Turn off viewer mode"
+msgstr "Ansichtsmodus einschalten"
+
 #: src/shortcuts-dialog.ui:8
 msgid "Application"
 msgstr ""
@@ -604,10 +654,6 @@ msgstr "Jetzt synchronisieren"
 #: src/window.ui:44
 msgid "Main Menu"
 msgstr "Hauptmenü"
-
-#: src/window.ui:51
-msgid "Turn on viewer mode"
-msgstr "Ansichtsmodus einschalten"
 
 #: src/window.ui:80
 msgid "Welcome to Diary"

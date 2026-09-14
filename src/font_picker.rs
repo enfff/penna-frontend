@@ -11,6 +11,8 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::{glib, pango};
 
+use crate::i18n;
+
 pub fn show_family_picker<F>(parent: &impl IsA<gtk::Widget>, on_select: F)
 where
     F: Fn(&str) + 'static,
@@ -75,7 +77,7 @@ where
     list.set_single_click_activate(true);
 
     let dialog = adw::Dialog::new();
-    dialog.set_title("Select a Font Family");
+    dialog.set_title(i18n::font_family_picker_title().as_str());
     dialog.set_content_width(440);
     dialog.set_content_height(560);
 
@@ -102,7 +104,7 @@ where
     });
 
     let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Search font families"));
+    search.set_placeholder_text(Some(i18n::font_family_search_placeholder().as_str()));
     search.connect_search_changed({
         let query = query.clone();
         let filter = filter.clone();

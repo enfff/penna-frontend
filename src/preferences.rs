@@ -69,7 +69,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
 
     let entry_format_row = adw::EntryRow::new();
     entry_format_row
-        .set_title("Entry date format (docs: https://www.php.net/manual/en/function.strftime.php)");
+        .set_title(i18n::entry_date_format_title().as_str());
     entry_format_row.set_text(if entry_datetime_format.trim().is_empty() {
         ENTRY_DATETIME_FORMAT_DEFAULT
     } else {
@@ -199,12 +199,13 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     options_box.set_homogeneous(true);
     options_box.set_margin_top(12);
 
-    let sans_radio = gtk::CheckButton::with_label("Sans");
+    let sans_radio = gtk::CheckButton::with_label(i18n::sans_font_label().as_str());
     sans_radio.set_halign(gtk::Align::Center);
-    let serif_radio = gtk::CheckButton::with_label("Serif");
+    let serif_radio = gtk::CheckButton::with_label(i18n::serif_font_label().as_str());
     serif_radio.set_group(Some(&sans_radio));
     serif_radio.set_halign(gtk::Align::Center);
-    let custom_radio = gtk::CheckButton::with_label("Custom");
+    let custom_radio =
+        gtk::CheckButton::with_label(i18n::custom_font_label().as_str());
     custom_radio.set_group(Some(&sans_radio));
     custom_radio.set_halign(gtk::Align::Center);
 
@@ -219,7 +220,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     sans_preview.set_justify(gtk::Justification::Center);
     sans_preview.set_halign(gtk::Align::Center);
     sans_card.append(&sans_preview);
-    let sans_caption = gtk::Label::new(Some("Adwaita Sans"));
+    let sans_caption = gtk::Label::new(Some(i18n::adwaita_sans_caption().as_str()));
     sans_caption.add_css_class("dim-label");
     sans_caption.set_halign(gtk::Align::Center);
     sans_card.append(&sans_caption);
@@ -240,7 +241,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
     serif_preview.set_justify(gtk::Justification::Center);
     serif_preview.set_halign(gtk::Align::Center);
     serif_card.append(&serif_preview);
-    let serif_caption = gtk::Label::new(Some("Free Serif"));
+    let serif_caption = gtk::Label::new(Some(i18n::free_serif_caption().as_str()));
     serif_caption.add_css_class("dim-label");
     serif_caption.set_halign(gtk::Align::Center);
     serif_card.append(&serif_caption);
@@ -311,7 +312,7 @@ pub fn show_preferences(app: &PennaFrontendApplication) {
         editor::EDITOR_FONT_SIZE_MAX_PT as f64,
         1.0,
     );
-    font_size_row.set_title("Font size");
+    font_size_row.set_title(i18n::font_size_title().as_str());
     font_size_row.set_digits(0);
     font_size_row.set_numeric(true);
     font_size_row.set_value(initial_font_size);

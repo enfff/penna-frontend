@@ -2154,7 +2154,7 @@ impl PennaFrontendWindow {
                 let dest_label_click = dest_label.clone();
                 let picker = gtk::FileDialog::builder()
                     .title(i18n::choose_clone_destination().as_str())
-                    .accept_label("Select")
+                    .accept_label(i18n::select_label().as_str())
                     .modal(true)
                     .build();
                 picker.select_folder(
@@ -2254,7 +2254,7 @@ impl PennaFrontendWindow {
     fn choose_repo_folder(&self) {
         let dialog = gtk::FileDialog::builder()
             .title(i18n::choose_repository_folder().as_str())
-            .accept_label("Select")
+            .accept_label(i18n::select_label().as_str())
             .modal(true)
             .build();
 
