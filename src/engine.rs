@@ -452,20 +452,6 @@ impl EngineMock {
         Ok(())
     }
 
-    pub fn delete_entry(&mut self, handle: JournalHandle, entry_id: &str) -> Result<(), String> {
-        let session = self
-            .sessions
-            .get(&handle.0)
-            .ok_or_else(|| "Journal handle not found".to_string())?;
-
-        let internal_id = Self::to_internal_entry_id(entry_id);
-        self.engine
-            .delete_entry(&session.session_id, &internal_id)
-            .map_err(Self::format_engine_error)
-    }
-
-    /// Delete an entry, keeping a snapshot of its full content so the caller
-    /// can offer an undo that restores it.
     pub fn delete_entry_with_snapshot(
         &mut self,
         handle: JournalHandle,
