@@ -307,8 +307,12 @@ pub fn tags_empty_hint() -> String {
 
 /// Markup row offered in the tags dialog when the filter matches no tag.
 /// `escaped_tag` must already be markup-escaped.
-pub fn add_tag_row(escaped_tag: &str) -> String {
-    gettext("Add tag “<b>{}</b>”").replace("{}", escaped_tag)
+pub fn tag_add_tooltip() -> String {
+    gettext("Add tag to this note")
+}
+
+pub fn tag_remove_tooltip() -> String {
+    gettext("Remove tag from this note")
 }
 
 pub fn sync_up_to_date() -> String {
@@ -548,7 +552,6 @@ mod i18n_surface_tests {
             "Unable to reload entries from disk: io"
         );
         assert_eq!(entries_count_label(42), "Entries: 42");
-        assert_eq!(add_tag_row("work"), "Add tag \u{201C}<b>work</b>\u{201D}");
         assert_eq!(sync_state_other("reconciled"), "Sync state: reconciled");
         assert_eq!(
             journal_status_details("main", "abc123", false, 7),

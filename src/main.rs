@@ -33,6 +33,7 @@ mod markdown;
 mod preferences;
 mod settings;
 mod sync;
+mod tags_dialog;
 mod window;
 
 use self::application::PennaFrontendApplication;
@@ -44,10 +45,6 @@ use gtk::{gio, glib};
 use gtk::prelude::*;
 
 fn main() -> glib::ExitCode {
-    // Boot marker: confirms which binary actually started (the app is
-    // single-instance, so a stale background process can shadow a relaunch).
-    eprintln!("[penna-frontend] boot: watcher-offload build 2026-08-27");
-
     // Register the custom editor widget before any template references it.
     editor::RuleTextView::ensure_type();
 

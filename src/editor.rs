@@ -203,6 +203,30 @@ pub fn apply_editor_css(window: &PennaFrontendWindow) {
             .tag-chip label {{\
                 font-size: 0.9em;\
             }}\
+            .tag-pill-attached, .tag-pill-existing, .tag-pill-new {{\
+                border-radius: 999px;\
+                padding: 1px 2px 1px 8px;\
+            }}\
+            .tag-pill-attached {{\
+                background-color: alpha(currentColor, 0.10);\
+                border: 1px solid alpha(currentColor, 0.18);\
+            }}\
+            .tag-pill-attached:hover {{\
+                background-color: alpha(currentColor, 0.16);\
+            }}\
+            .tag-pill-existing {{\
+                background-color: transparent;\
+                border: 1px solid alpha(currentColor, 0.28);\
+            }}\
+            .tag-pill-new {{\
+                background-color: transparent;\
+                border: 1px dashed alpha(currentColor, 0.30);\
+            }}\
+            .tag-pill-attached button, .tag-pill-existing button, .tag-pill-new button {{\
+                min-width: 22px;\
+                min-height: 22px;\
+                padding: 1px;\
+            }}\
             .conflict-resolve button {{\
                 padding: 1px 8px;\
                 border-radius: 999px;\
