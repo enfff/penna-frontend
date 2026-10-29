@@ -54,6 +54,30 @@ use crate::sync;
 
 const HEADER_REVEAL_HOVER_Y: f64 = 56.0;
 const MAIN_PAGE_MARGIN_NORMAL: i32 = 12;
+// Caret-follow: line heights of breathing room left under the caret when it
+// reaches the bottom edge, and how much empty runway to leave below the last
+// line so the editor canvas feels infinite.
+const FOLLOW_LINES_BELOW_CARET: f64 = 6.0;
+const FOLLOW_LINES_TRIGGER: f64 = 4.0;
+/// Empty scrollable space kept below the document (in viewport heights).
+const FOLLOW_RUNWAY_PAGES: f64 = 0.5;
+/// Smooth-scroll settings for the caret follow.
+const SCROLL_ANIM_TICK_MS: u32 = 16;
+const SCROLL_ANIM_EASE: f64 = 0.3;
+const SCROLL_ANIM_SNAP_PX: f64 = 0.6;
+
+/// In-flight smooth scroll toward a target adjustment value.
+#[derive(Debug)]
+pub struct ScrollAnim {
+    _source: glib::SourceId,
+    state: Rc<RefCell<AnimState>>,
+}
+
+#[derive(Debug)]
+pub struct AnimState {
+    current: f64,
+    target: f64,
+}
 const ACTION_CONFLICT_ACCEPT_CURRENT: &str = "conflict-accept-current";
 const ACTION_CONFLICT_ACCEPT_INCOMING: &str = "conflict-accept-incoming";
 const ACTION_CONFLICT_ACCEPT_BOTH: &str = "conflict-accept-both";
@@ -135,6 +159,9 @@ mod imp {
         pub refresh_source: RefCell<Option<glib::SourceId>>,
         pub cursor_follow_source: RefCell<Option<glib::SourceId>>,
         pub cursor_follow_late_source: RefCell<Option<glib::SourceId>>,
+        pub follow_runway: Cell<i32>,
+        pub caret_follow_connected: Cell<bool>,
+        pub editor_scroll_anim: RefCell<Option<ScrollAnim>>,
         pub last_entries_fingerprint: RefCell<Option<u64>>,
         pub in_editor_view: RefCell<bool>,
         pub in_notes_grid_view: RefCell<bool>,
@@ -187,6 +214,9 @@ mod imp {
                 refresh_source: RefCell::default(),
                 cursor_follow_source: RefCell::default(),
                 cursor_follow_late_source: RefCell::default(),
+                follow_runway: Cell::default(),
+                caret_follow_connected: Cell::default(),
+                editor_scroll_anim: RefCell::default(),
                 last_entries_fingerprint: RefCell::default(),
                 in_editor_view: RefCell::default(),
                 in_notes_grid_view: RefCell::default(),
@@ -1611,21 +1641,127 @@ impl PennaFrontendWindow {
         }
     }
 
+    /// Smoothly scrolls the editor's vertical adjustment toward `target`,
+    /// easing over successive ticks instead of jumping. If an animation is
+    /// already running it is retargeted rather than restarted (so fast typing
+    /// streams the follow instead of stuttering).
+    fn animate_scroll_to(&self, adjustment: &gtk::Adjustment, target: f64) {
+        let imp = self.imp();
+        let max = (adjustment.upper() - adjustment.page_size()).max(0.0);
+        let target = target.clamp(0.0, max);
+
+        if let Some(anim) = imp.editor_scroll_anim.borrow().as_ref() {
+            anim.state.borrow_mut().target = target;
+            return;
+        }
+
+        let current = adjustment.value();
+        if (target - current).abs() < SCROLL_ANIM_SNAP_PX {
+            adjustment.set_value(target);
+            return;
+        }
+
+        let state = Rc::new(RefCell::new(AnimState { current, target }));
+        let state_clone = state.clone();
+        let adjustment_clone = adjustment.clone();
+        let source = glib::timeout_add_local(
+            Duration::from_millis(SCROLL_ANIM_TICK_MS as u64),
+            glib::clone!(
+                #[strong(rename_to = window)]
+                self,
+                move || {
+                    let (value, done) = {
+                        let mut s = state_clone.borrow_mut();
+                        s.current += (s.target - s.current) * SCROLL_ANIM_EASE;
+                        let done = (s.target - s.current).abs() <= SCROLL_ANIM_SNAP_PX;
+                        (s.current, done)
+                    };
+                    adjustment_clone.set_value(value);
+                    if !done {
+                        return glib::ControlFlow::Continue;
+                    }
+                    adjustment_clone.set_value(state_clone.borrow().target);
+                    window.imp().editor_scroll_anim.borrow_mut().take();
+                    glib::ControlFlow::Break
+                }
+            ),
+        );
+        *imp.editor_scroll_anim.borrow_mut() =
+            Some(ScrollAnim { _source: source, state });
+    }
+
     fn follow_editor_cursor_now(&self) {
         let imp = self.imp();
         if !*imp.in_editor_view.borrow() || *imp.editor_viewer_mode.borrow() {
             return;
         }
 
-        let buffer = imp.editor_view.buffer();
-        let insert_mark = buffer.get_insert();
-        let mut iter = buffer.iter_at_mark(&insert_mark);
+        // The editor TextView sits inside an AdwClamp, so it has no scroll
+        // adjustments of its own and the scroll_mark_/scroll_to_ helper calls
+        // are no-ops. Scroll the scrolled window's adjustment instead.
+        let view = &imp.editor_view;
+        let Some(scrolled) = view
+            .ancestor(gtk::ScrolledWindow::static_type())
+            .and_downcast::<gtk::ScrolledWindow>()
+        else {
+            return;
+        };
+        let adjustment = scrolled.vadjustment();
+        let page = adjustment.page_size();
+        if page <= 0.0 {
+            return;
+        }
 
-        imp.editor_view.scroll_mark_onscreen(&insert_mark);
-        imp.editor_view
-            .scroll_to_mark(&insert_mark, 0.0, true, 0.0, 0.97);
-        imp.editor_view
-            .scroll_to_iter(&mut iter, 0.0, true, 0.0, 0.97);
+        // Re-run once the new geometry lands after a keystroke reallocation.
+        // This is the reliable moment: `adjusted.changed` fires only after the
+        // text view has re-laid-out the new content, so iter_location and the
+        // scroll range are both fresh — the timers alone race markdown
+        // re-styling and scroll a line or two late. Run it on the next idle so
+        // set_value happens outside GTK's allocation callback.
+        if !imp.caret_follow_connected.get() {
+            imp.caret_follow_connected.set(true);
+            adjustment.connect_changed(glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |_| {
+                    if *window.imp().in_editor_view.borrow()
+                        && !*window.imp().editor_viewer_mode.borrow()
+                    {
+                        glib::idle_add_local_once(glib::clone!(
+                            #[weak(rename_to = window)]
+                            window,
+                            move || window.follow_editor_cursor_now()
+                        ));
+                    }
+                }
+            ));
+        }
+
+        // Overscroll runway: keep an "infinite" amount of empty scrollable space
+        // below the last line. Widget margin grows the scroll range on GTK 4.22
+        // (the TextView's own bottom-margin property does not).
+        let want_runway = (page * FOLLOW_RUNWAY_PAGES) as i32;
+        if imp.follow_runway.get() != want_runway {
+            imp.follow_runway.set(want_runway);
+            view.set_margin_bottom(want_runway);
+        }
+
+        // Caret position in content coordinates (the text view is the scrolled
+        // content, so iter_location.y is directly comparable to the adjustment).
+        let buffer = view.buffer();
+        let insert_mark = buffer.get_insert();
+        let caret_loc = view.iter_location(&buffer.iter_at_mark(&insert_mark));
+        let caret_y = caret_loc.y() as f64;
+        let line_height = caret_loc.height().max(1) as f64;
+
+        let visible_top = adjustment.value();
+        let visible_bottom = visible_top + page;
+
+        if caret_y + line_height > visible_bottom - line_height * FOLLOW_LINES_TRIGGER {
+            let overflow = (caret_y + line_height - visible_bottom).max(0.0);
+            let target = adjustment.value() + overflow + line_height * FOLLOW_LINES_BELOW_CARET;
+            self.animate_scroll_to(&adjustment, target);
+        }
     }
 
     fn queue_follow_editor_cursor(&self) {
