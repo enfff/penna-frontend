@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "penna-frontend"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "chrono",
  "gettext-rs",

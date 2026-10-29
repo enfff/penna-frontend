@@ -50,6 +50,17 @@
   </requires>
 
   <releases>
+    <release version="0.1.6" date="2026-10-15">
+      <description>
+        <p>Editor and tag workflow polish:</p>
+        <ul>
+          <li>Tags dialog rebuilt: wrapping pills with solid/outline/dashed states, add-or-remove per tag, keyboard navigation</li>
+          <li>Keyboard-safe custom font picker (replaces a GTK dialog that crashed on Enter)</li>
+          <li>Caret-follow with smooth scrolling and an infinite-till-bottom editor canvas</li>
+          <li>Markdown parsing and conflict parsing single-sourced and unit-tested</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-08-28">
       <description>
         <p>A sync and performance pass:</p>
